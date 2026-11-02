@@ -355,7 +355,133 @@
         const wordCenterX = cursorX + wordObj.width / 2;
         ctx.save();
 
-        if (template === 'classic_yellow') {
+        if (template === 'ae_hormozi') {
+          // Adobe After Effects Hormozi Pop (3D offset shadow + elastic overshoot + neon green/yellow)
+          const isCurr = wordObj.isCurrent;
+          const bounceScale = isCurr
+            ? (1.0 + 0.30 * Math.sin(Math.min(1, wordProgressWithinCurrent * 1.5) * Math.PI))
+            : 1.0;
+          ctx.translate(wordCenterX, rowY);
+          ctx.scale(bounceScale, bounceScale);
+          if (isCurr) ctx.rotate(-0.035);
+          ctx.textAlign = 'center';
+          // 3D hard drop shadow
+          ctx.shadowColor = '#000000';
+          ctx.shadowOffsetX = 8;
+          ctx.shadowOffsetY = 8;
+          ctx.shadowBlur = 0;
+          // Outer thick black sticker outline
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = Math.max(12, outlineWidth * 2.5);
+          ctx.strokeText(wordObj.text, 0, 0);
+          ctx.shadowColor = 'transparent';
+          // Inner fill: bright neon green or selected highlight
+          ctx.fillStyle = isCurr ? (highlightColor || '#00ff66') : '#ffffff';
+          ctx.fillText(wordObj.text, 0, 0);
+        } else if (template === 'ae_kinetic') {
+          // Adobe After Effects Kinetic Word Snap (rapid cut zoom-in with action badge)
+          const isCurr = wordObj.isCurrent;
+          const snapScale = isCurr
+            ? (wordProgressWithinCurrent < 0.22 ? 1.34 : 1.08)
+            : 0.95;
+          ctx.translate(wordCenterX, rowY);
+          ctx.scale(snapScale, snapScale);
+          ctx.textAlign = 'center';
+          if (isCurr) {
+            ctx.fillStyle = '#ff1a40';
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 6;
+            ctx.beginPath();
+            ctx.roundRect(-wordObj.width * 0.62, -fontSize * 0.62, wordObj.width * 1.24, fontSize * 1.24, 14);
+            ctx.fill();
+            ctx.stroke();
+          }
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = Math.max(10, outlineWidth * 2.2);
+          ctx.strokeText(wordObj.text, 0, 0);
+          ctx.fillStyle = isCurr ? '#ffd93b' : '#ffffff';
+          ctx.fillText(wordObj.text, 0, 0);
+        } else if (template === 'ae_glow') {
+          // Adobe After Effects Cyber Neon Glow with Chromatic Aberration RGB split
+          const isCurr = wordObj.isCurrent;
+          ctx.textAlign = 'center';
+          // Chromatic cyan & magenta fringe
+          if (isCurr) {
+            ctx.save();
+            ctx.shadowColor = '#00f5ff';
+            ctx.shadowBlur = 32;
+            ctx.fillStyle = 'rgba(0, 245, 255, 0.75)';
+            ctx.fillText(wordObj.text, wordCenterX - 4, rowY);
+            ctx.shadowColor = '#ff007f';
+            ctx.shadowBlur = 32;
+            ctx.fillStyle = 'rgba(255, 0, 127, 0.75)';
+            ctx.fillText(wordObj.text, wordCenterX + 4, rowY);
+            ctx.restore();
+          }
+          if (outlineWidth > 0) {
+            ctx.strokeStyle = '#080318';
+            ctx.lineWidth = Math.max(8, outlineWidth * 1.8);
+            ctx.strokeText(wordObj.text, wordCenterX, rowY);
+          }
+          ctx.fillStyle = isCurr ? '#ffd93b' : '#ffffff';
+          ctx.fillText(wordObj.text, wordCenterX, rowY);
+        } else if (template === 'ae_beast') {
+          // Adobe After Effects MrBeast Action Badge
+          const isCurr = wordObj.isCurrent;
+          ctx.translate(wordCenterX, rowY);
+          if (isCurr) ctx.rotate(-0.04);
+          ctx.textAlign = 'center';
+          if (isCurr) {
+            ctx.save();
+            ctx.fillStyle = '#ffd93b';
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 7;
+            ctx.shadowColor = '#000000';
+            ctx.shadowOffsetX = 7;
+            ctx.shadowOffsetY = 7;
+            ctx.beginPath();
+            ctx.roundRect(-wordObj.width * 0.60, -fontSize * 0.58, wordObj.width * 1.20, fontSize * 1.16, 16);
+            ctx.fill();
+            ctx.stroke();
+            ctx.restore();
+            ctx.fillStyle = '#000000';
+            ctx.fillText(wordObj.text, 0, 0);
+          } else {
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = Math.max(10, outlineWidth * 2.2);
+            ctx.shadowColor = '#000000';
+            ctx.shadowOffsetX = 5;
+            ctx.shadowOffsetY = 5;
+            ctx.strokeText(wordObj.text, 0, 0);
+            ctx.shadowColor = 'transparent';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(wordObj.text, 0, 0);
+          }
+        } else if (template === 'ae_split') {
+          // Adobe After Effects Cutout Capsule
+          const isCurr = wordObj.isCurrent;
+          if (isCurr) {
+            ctx.fillStyle = highlightColor || '#ffd93b';
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 5;
+            ctx.beginPath();
+            ctx.roundRect(cursorX - 14, rowY - fontSize * 0.58, wordObj.width + 28, fontSize * 1.16, 18);
+            ctx.fill();
+            ctx.stroke();
+            ctx.textAlign = 'center';
+            ctx.fillStyle = '#000000';
+            ctx.fillText(wordObj.text, wordCenterX, rowY);
+          } else {
+            ctx.textAlign = 'center';
+            if (outlineWidth > 0) {
+              ctx.strokeStyle = '#000000';
+              ctx.lineWidth = outlineWidth * 1.8;
+              ctx.strokeText(wordObj.text, wordCenterX, rowY);
+            }
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.78)';
+            ctx.fillText(wordObj.text, wordCenterX, rowY);
+          }
+        } else if (template === 'classic_yellow') {
           ctx.textAlign = 'center';
           if (outlineWidth > 0) {
             ctx.strokeStyle = '#1b1b1b';
@@ -410,7 +536,7 @@
           ctx.textAlign = 'center';
           ctx.fillStyle = wordObj.isCurrent ? '#1b1b1b' : '#ffffff';
           ctx.fillText(wordObj.text, wordCenterX, rowY);
-        } else if (template === 'karaoke') {
+        } else if (template === 'karaoke' || template === 'ae_wave') {
           ctx.textAlign = 'left';
           if (outlineWidth > 0) {
             ctx.strokeStyle = '#1b1b1b';
@@ -428,7 +554,7 @@
             ctx.beginPath();
             ctx.rect(cursorX, rowY - fontSize, wordObj.width * fillFraction, fontSize * 2);
             ctx.clip();
-            ctx.fillStyle = highlightColor;
+            ctx.fillStyle = highlightColor || '#ffd93b';
             ctx.fillText(wordObj.text, cursorX, rowY);
             ctx.restore();
           }

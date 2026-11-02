@@ -81,7 +81,7 @@
           </button>
         </div>
         <p class="section-desc">
-          Upload any gameplay or aesthetic video (any size or ratio), or use our built-in 3D Blocky Parkour loop!
+          Upload any gameplay or aesthetic video (any size or ratio up to 1GB), or use our built-in 3D Blocky Parkour loop!
         </p>
 
         <div class="video-preview-slot" id="bg-preview-container">
@@ -288,22 +288,68 @@
       <div class="cartoon-card purple-tint">
         <h2 class="section-title">🎙️ Choose Character Voices</h2>
         <p class="section-desc">
-          Pick two distinct prebuilt voices. We generate one AudioBuffer clip per line with a 0.15s gap between lines!
+          Pick realistic human or AI character voices with custom speed and pitch controls. Or choose a quick Duo Preset!
         </p>
+
+        <!-- QUICK VOICE DUO PRESETS -->
+        <div style="margin-bottom:12px;">
+          <label class="field-label">⚡ Quick Voice Duo Presets</label>
+          <div class="pill-choice-row" style="flex-wrap:wrap;gap:6px;">
+            <button type="button" class="btn-cartoon btn-white btn-sm voice-duo-chip" data-duo="natural">🧑‍🤝‍🧑 Natural Duo</button>
+            <button type="button" class="btn-cartoon btn-white btn-sm voice-duo-chip" data-duo="gamer">🎮 Gamer Bros</button>
+            <button type="button" class="btn-cartoon btn-white btn-sm voice-duo-chip" data-duo="trailer">🎬 Movie Trailer</button>
+            <button type="button" class="btn-cartoon btn-white btn-sm voice-duo-chip" data-duo="story">📖 British Story</button>
+            <button type="button" class="btn-cartoon btn-white btn-sm voice-duo-chip" data-duo="desi">🇮🇳 Desi Vibes</button>
+            <button type="button" class="btn-cartoon btn-white btn-sm voice-duo-chip" data-duo="anime">✨ Anime Quirky</button>
+          </div>
+        </div>
 
         <div class="asset-grid">
           <!-- Voice A -->
           <div class="asset-box char-a">
             <span id="voice-label-char-a" class="badge-tag" style="background:var(--orange);">Character A Voice</span>
             <select id="select-voice-a" class="cartoon-select" aria-label="Character A Voice">
-              <option value="Puck" selected>Puck (Confident &amp; Punchy)</option>
-              <option value="Charon">Charon (Deep &amp; Bold)</option>
-              <option value="Fenrir">Fenrir (Fast Hype)</option>
-              <option value="Kore">Kore (Bright &amp; Snappy)</option>
-              <option value="Aoede">Aoede (Smooth Storyteller)</option>
-              <option value="Zephyr">Zephyr (Playful &amp; Quirky)</option>
+              <optgroup label="🌟 Natural Human Voices">
+                <option value="Alex" selected>Alex (Natural Confident Male)</option>
+                <option value="Emma">Emma (Natural Warm Female)</option>
+                <option value="Marcus">Marcus (Deep Studio Male)</option>
+                <option value="Chloe">Chloe (Snappy Energetic Female)</option>
+                <option value="Leo">Leo (Casual Teen Guy)</option>
+                <option value="Maya">Maya (Expressive Female)</option>
+                <option value="Oliver">Oliver (British Narrator)</option>
+                <option value="Lily">Lily (Sweet British Female)</option>
+                <option value="Arjun">Arjun (Indian English Male)</option>
+                <option value="Priya">Priya (Indian English Female)</option>
+              </optgroup>
+              <optgroup label="🤖 Gemini AI Voices">
+                <option value="Puck">Puck (Confident &amp; Punchy)</option>
+                <option value="Charon">Charon (Deep &amp; Bold)</option>
+                <option value="Fenrir">Fenrir (Fast Hype)</option>
+                <option value="Kore">Kore (Bright &amp; Snappy)</option>
+                <option value="Aoede">Aoede (Smooth Storyteller)</option>
+                <option value="Zephyr">Zephyr (Playful &amp; Quirky)</option>
+                <option value="Leda">Leda (Calm Melodic)</option>
+                <option value="Orpheus">Orpheus (Dramatic Epic)</option>
+              </optgroup>
             </select>
-            <button id="btn-preview-voice-a" type="button" class="btn-cartoon btn-orange btn-sm" style="width:100%;">
+
+            <div class="slider-group" style="width:100%;margin-top:6px;">
+              <div class="slider-header" style="font-size:11px;">
+                <span>⏩ Speed</span>
+                <span id="val-speed-a">1.0x</span>
+              </div>
+              <input id="slider-speed-a" type="range" class="cartoon-slider" min="0.8" max="1.4" step="0.05" value="1.0" />
+            </div>
+
+            <div class="slider-group" style="width:100%;margin-top:2px;">
+              <div class="slider-header" style="font-size:11px;">
+                <span>🎵 Pitch</span>
+                <span id="val-pitch-a">1.0x</span>
+              </div>
+              <input id="slider-pitch-a" type="range" class="cartoon-slider" min="0.8" max="1.3" step="0.05" value="1.0" />
+            </div>
+
+            <button id="btn-preview-voice-a" type="button" class="btn-cartoon btn-orange btn-sm" style="width:100%;margin-top:4px;">
               🔊 Preview A
             </button>
           </div>
@@ -312,14 +358,47 @@
           <div class="asset-box char-b">
             <span id="voice-label-char-b" class="badge-tag" style="background:var(--purple);">Character B Voice</span>
             <select id="select-voice-b" class="cartoon-select" aria-label="Character B Voice">
-              <option value="Zephyr" selected>Zephyr (Silly &amp; Reacting)</option>
-              <option value="Kore">Kore (Expressive &amp; High)</option>
-              <option value="Puck">Puck (Energetic Sidekick)</option>
-              <option value="Fenrir">Fenrir (Dramatic Reactor)</option>
-              <option value="Aoede">Aoede (Sarcastic Tone)</option>
-              <option value="Charon">Charon (Deadpan Deep)</option>
+              <optgroup label="🌟 Natural Human Voices">
+                <option value="Emma" selected>Emma (Natural Warm Female)</option>
+                <option value="Alex">Alex (Natural Confident Male)</option>
+                <option value="Chloe">Chloe (Snappy Energetic Female)</option>
+                <option value="Leo">Leo (Casual Teen Guy)</option>
+                <option value="Maya">Maya (Expressive Female)</option>
+                <option value="Marcus">Marcus (Deep Studio Male)</option>
+                <option value="Lily">Lily (Sweet British Female)</option>
+                <option value="Oliver">Oliver (British Narrator)</option>
+                <option value="Priya">Priya (Indian English Female)</option>
+                <option value="Arjun">Arjun (Indian English Male)</option>
+              </optgroup>
+              <optgroup label="🤖 Gemini AI Voices">
+                <option value="Zephyr">Zephyr (Playful &amp; Quirky)</option>
+                <option value="Kore">Kore (Expressive &amp; High)</option>
+                <option value="Puck">Puck (Energetic Sidekick)</option>
+                <option value="Fenrir">Fenrir (Dramatic Reactor)</option>
+                <option value="Aoede">Aoede (Sarcastic Tone)</option>
+                <option value="Charon">Charon (Deadpan Deep)</option>
+                <option value="Leda">Leda (Calm Melodic)</option>
+                <option value="Orpheus">Orpheus (Dramatic Epic)</option>
+              </optgroup>
             </select>
-            <button id="btn-preview-voice-b" type="button" class="btn-cartoon btn-purple btn-sm" style="width:100%;">
+
+            <div class="slider-group" style="width:100%;margin-top:6px;">
+              <div class="slider-header" style="font-size:11px;">
+                <span>⏩ Speed</span>
+                <span id="val-speed-b">1.0x</span>
+              </div>
+              <input id="slider-speed-b" type="range" class="cartoon-slider" min="0.8" max="1.4" step="0.05" value="1.0" />
+            </div>
+
+            <div class="slider-group" style="width:100%;margin-top:2px;">
+              <div class="slider-header" style="font-size:11px;">
+                <span>🎵 Pitch</span>
+                <span id="val-pitch-b">1.0x</span>
+              </div>
+              <input id="slider-pitch-b" type="range" class="cartoon-slider" min="0.8" max="1.3" step="0.05" value="1.0" />
+            </div>
+
+            <button id="btn-preview-voice-b" type="button" class="btn-cartoon btn-purple btn-sm" style="width:100%;margin-top:4px;">
               🔊 Preview B
             </button>
           </div>
@@ -482,7 +561,34 @@
           <div id="captions-controls-body" style="display:flex;flex-direction:column;gap:12px;">
             <label class="field-label">🎨 Caption Template (Live Preview)</label>
             <div id="caption-template-grid" class="caption-templates-grid">
-              <button type="button" class="caption-tpl-card selected" data-tpl="classic_yellow">
+              <!-- ADOBE AFTER EFFECTS VIRAL SHORT TEMPLATES -->
+              <button type="button" class="caption-tpl-card selected" data-tpl="ae_hormozi" style="border-color:#ffd93b;">
+                <span class="caption-tpl-preview" style="background:#0d0d0d;color:#3ddc6a;box-shadow:2px 2px 0 #000;font-weight:900;">⚡ HORMOZI 3D</span>
+                <span style="font-size:12px;font-weight:800;">AE Hormozi Pop</span>
+              </button>
+              <button type="button" class="caption-tpl-card" data-tpl="ae_kinetic" style="border-color:#ff5c5c;">
+                <span class="caption-tpl-preview" style="background:#ff3333;color:#ffd93b;font-weight:900;">💥 KINETIC SNAP</span>
+                <span style="font-size:12px;font-weight:800;">AE Kinetic Snap</span>
+              </button>
+              <button type="button" class="caption-tpl-card" data-tpl="ae_glow" style="border-color:#00f5ff;">
+                <span class="caption-tpl-preview" style="background:#060017;color:#00f5ff;text-shadow:0 0 6px #00f5ff;">✨ CYBER GLOW</span>
+                <span style="font-size:12px;font-weight:800;">AE Cyber Glow</span>
+              </button>
+              <button type="button" class="caption-tpl-card" data-tpl="ae_beast" style="border-color:#3ddc6a;">
+                <span class="caption-tpl-preview" style="background:#00b4d8;color:#ffd93b;border-radius:999px;font-weight:900;">BEAST PILL</span>
+                <span style="font-size:12px;font-weight:800;">AE Beast Pill</span>
+              </button>
+              <button type="button" class="caption-tpl-card" data-tpl="ae_split" style="border-color:#b79cff;">
+                <span class="caption-tpl-preview" style="background:#1e1035;color:#ffffff;border-bottom:3px solid #ff7aa8;">CUTOUT CAPSULE</span>
+                <span style="font-size:12px;font-weight:800;">AE Cutout Capsule</span>
+              </button>
+              <button type="button" class="caption-tpl-card" data-tpl="ae_wave" style="border-color:#ffd93b;">
+                <span class="caption-tpl-preview" style="background:linear-gradient(90deg,#ff7aa8,#ffd93b);color:#1b1b1b;font-weight:900;">WAVE FILL</span>
+                <span style="font-size:12px;font-weight:800;">AE Wave Gradient</span>
+              </button>
+
+              <!-- CLASSIC STYLES -->
+              <button type="button" class="caption-tpl-card" data-tpl="classic_yellow">
                 <span class="caption-tpl-preview" style="background:#1b1b1b;color:#ffd93b;">CLASSIC</span>
                 <span style="font-size:12px;font-weight:800;">Classic Yellow</span>
               </button>
@@ -620,9 +726,9 @@
           </div>
 
           <div class="btn-row">
-            <button id="btn-download-video" type="button" class="btn-cartoon btn-yellow">
+            <a id="btn-download-video" class="btn-cartoon btn-yellow" href="#" download="ToonTalk_Video.mp4" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">
               💾 Download / Save
-            </button>
+            </a>
             <button id="btn-share-video" type="button" class="btn-cartoon btn-pink">
               📤 Share
             </button>

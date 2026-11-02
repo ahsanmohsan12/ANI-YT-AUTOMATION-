@@ -42,8 +42,12 @@
     customStyle: '',
     language: 'English',
     lengthSec: 30,
-    voiceA: 'Puck',
-    voiceB: 'Zephyr',
+    voiceA: 'Alex',
+    voiceB: 'Emma',
+    speedA: 1.0,
+    speedB: 1.0,
+    pitchA: 1.0,
+    pitchB: 1.0,
     bgFit: 'fill',
     bgZoom: 120,
     bgPanX: 0,
@@ -55,14 +59,23 @@
     charVerticalPos: 50,
     charEdgeDist: 4,
     captionsEnabled: true,
-    captionTemplate: 'classic_yellow',
+    captionTemplate: 'ae_hormozi',
     captionFont: 'Fredoka',
     captionSize: 74,
     captionPosition: 'bottom',
     wordsPerScreen: 3,
-    highlightColor: '#ffd93b',
+    highlightColor: '#3ddc6a',
     outlineThickness: 10,
     showSpeakerTag: true
+  };
+
+  const VOICE_DUO_PRESETS = {
+    natural: { voiceA: 'Alex', voiceB: 'Emma', speedA: 1.0, speedB: 1.0, pitchA: 1.0, pitchB: 1.0 },
+    gamer: { voiceA: 'Leo', voiceB: 'Puck', speedA: 1.1, speedB: 1.15, pitchA: 1.05, pitchB: 1.1 },
+    trailer: { voiceA: 'Marcus', voiceB: 'Charon', speedA: 0.9, speedB: 0.95, pitchA: 0.85, pitchB: 0.9 },
+    story: { voiceA: 'Oliver', voiceB: 'Lily', speedA: 0.95, speedB: 1.0, pitchA: 1.0, pitchB: 1.05 },
+    desi: { voiceA: 'Arjun', voiceB: 'Priya', speedA: 1.05, speedB: 1.05, pitchA: 1.0, pitchB: 1.1 },
+    anime: { voiceA: 'Chloe', voiceB: 'Zephyr', speedA: 1.1, speedB: 1.2, pitchA: 1.15, pitchB: 1.25 }
   };
 
   let settings = loadSettings();
@@ -282,8 +295,29 @@
     });
 
     // Voices
-    document.getElementById('select-voice-a').value = settings.voiceA || 'Puck';
-    document.getElementById('select-voice-b').value = settings.voiceB || 'Zephyr';
+    document.getElementById('select-voice-a').value = settings.voiceA || 'Alex';
+    document.getElementById('select-voice-b').value = settings.voiceB || 'Emma';
+
+    const spdASlider = document.getElementById('slider-speed-a');
+    if (spdASlider) {
+      spdASlider.value = settings.speedA || 1.0;
+      document.getElementById('val-speed-a').textContent = (settings.speedA || 1.0).toFixed(2) + 'x';
+    }
+    const spdBSlider = document.getElementById('slider-speed-b');
+    if (spdBSlider) {
+      spdBSlider.value = settings.speedB || 1.0;
+      document.getElementById('val-speed-b').textContent = (settings.speedB || 1.0).toFixed(2) + 'x';
+    }
+    const ptcASlider = document.getElementById('slider-pitch-a');
+    if (ptcASlider) {
+      ptcASlider.value = settings.pitchA || 1.0;
+      document.getElementById('val-pitch-a').textContent = (settings.pitchA || 1.0).toFixed(2) + 'x';
+    }
+    const ptcBSlider = document.getElementById('slider-pitch-b');
+    if (ptcBSlider) {
+      ptcBSlider.value = settings.pitchB || 1.0;
+      document.getElementById('val-pitch-b').textContent = (settings.pitchB || 1.0).toFixed(2) + 'x';
+    }
 
     // Framing
     document.querySelectorAll('#bg-fit-pills .pill-choice').forEach((btn) => {
@@ -605,12 +639,14 @@
   // =========================================================
   // STEP 4: VOICES & AUDIOBUFFER SYNTHESIS
   // =========================================================
-  async function synthesizeBufferForText(text, voiceName) {
+  async function synthesizeBufferForText(text, voiceName, pitch = 1.0, speed = 1.0) {
     const audioCtx = getSharedAudioCtx();
     const res = await callNativeBridge('synthesizeVoice', {
       text,
       voiceName,
       language: settings.language,
+      pitch,
+      speed,
       apiKey: getLocalApiKey()
     });
 
@@ -626,28 +662,42 @@
     }
 
     // Direct Web Audio expressive vocal AudioBuffer synthesis fallback if outside Android bridge
-    return createBrowserExpressiveAudioBuffer(audioCtx, text, voiceName);
+    return createBrowserExpressiveAudioBuffer(audioCtx, text, voiceName, pitch, speed);
   }
 
-  function createBrowserExpressiveAudioBuffer(audioCtx, text, voiceName) {
+  function createBrowserExpressiveAudioBuffer(audioCtx, text, voiceName, pitch = 1.0, speed = 1.0) {
     const words = (text || 'Hello').trim().split(/\s+/).filter(Boolean);
     const wordCount = Math.max(1, words.length);
-    const secPerWord = 0.28;
-    const duration = Math.min(8.5, Math.max(1.1, wordCount * secPerWord + 0.22));
+    const secPerWord = Math.max(0.18, 0.28 / Math.max(0.6, speed));
+    const duration = Math.min(9.0, Math.max(1.1, wordCount * secPerWord + 0.20));
     const sampleRate = audioCtx.sampleRate || 24000;
     const totalSamples = Math.floor(duration * sampleRate);
     const buffer = audioCtx.createBuffer(1, totalSamples, sampleRate);
     const channel = buffer.getChannelData(0);
 
     const freqMap = {
-      Charon: 118,
-      Fenrir: 138,
-      Puck: 168,
-      Aoede: 215,
-      Kore: 242,
-      Zephyr: 276
+      // Natural Human Voices
+      Alex: 135,
+      Emma: 220,
+      Marcus: 105,
+      Chloe: 235,
+      Leo: 155,
+      Maya: 215,
+      Oliver: 125,
+      Lily: 245,
+      Arjun: 130,
+      Priya: 225,
+      // Gemini AI Voices
+      Charon: 110,
+      Fenrir: 140,
+      Puck: 165,
+      Aoede: 210,
+      Kore: 240,
+      Zephyr: 265,
+      Leda: 200,
+      Orpheus: 120
     };
-    const baseFreq = freqMap[voiceName] || 175;
+    const baseFreq = (freqMap[voiceName] || 175) * Math.max(0.7, Math.min(1.4, pitch));
     let p1 = 0, p2 = 0, p3 = 0;
 
     for (let i = 0; i < totalSamples; i++) {
@@ -656,11 +706,11 @@
       const wIdx = Math.floor(wPos);
       const frac = wPos - wIdx;
       const env = wIdx < wordCount ? Math.max(0, Math.sin(Math.min(1, frac * 1.15) * Math.PI)) : 0;
-      const f0 = baseFreq * (1 + 0.1 * Math.sin(wIdx * 1.9) + 0.05 * Math.sin(frac * Math.PI * 2));
+      const f0 = baseFreq * (1 + 0.08 * Math.sin(wIdx * 1.9) + 0.04 * Math.sin(frac * Math.PI * 2));
       p1 += (2 * Math.PI * f0) / sampleRate;
       p2 += (4 * Math.PI * f0) / sampleRate;
       p3 += (6 * Math.PI * f0) / sampleRate;
-      channel[i] = (0.6 * Math.sin(p1) + 0.28 * Math.sin(p2) + 0.12 * Math.sin(p3)) * env * 0.45;
+      channel[i] = (0.55 * Math.sin(p1) + 0.30 * Math.sin(p2) + 0.15 * Math.sin(p3)) * env * 0.45;
     }
     return buffer;
   }
@@ -686,9 +736,13 @@
     line.status = 'loading';
     renderVoiceClipsList();
 
-    const voiceName = line.speaker === 'A' ? settings.voiceA : settings.voiceB;
+    const isA = line.speaker === 'A';
+    const voiceName = isA ? settings.voiceA : settings.voiceB;
+    const pitch = isA ? (settings.pitchA || 1.0) : (settings.pitchB || 1.0);
+    const speed = isA ? (settings.speedA || 1.0) : (settings.speedB || 1.0);
+
     try {
-      const buf = await synthesizeBufferForText(line.text, voiceName);
+      const buf = await synthesizeBufferForText(line.text, voiceName, pitch, speed);
       line.audioBuffer = buf;
       line.durationSec = Number(buf.duration.toFixed(2));
       line.status = 'ready';
@@ -916,9 +970,19 @@
       }
       lastRenderedUrl = URL.createObjectURL(blob);
 
+      const ext = (lastRenderedMimeType || '').includes('mp4') ? 'mp4' : 'webm';
+      const defaultFileName = `ToonTalk_${Date.now()}.${ext}`;
+
       const outputVideo = document.getElementById('rendered-output-video');
       outputVideo.src = lastRenderedUrl;
       outputVideo.load();
+
+      // Configure direct download button anchor immediately
+      const dlBtn = document.getElementById('btn-download-video');
+      if (dlBtn) {
+        dlBtn.href = lastRenderedUrl;
+        dlBtn.download = defaultFileName;
+      }
 
       progressSection.classList.add('hidden');
       outputSection.classList.remove('hidden');
@@ -927,8 +991,8 @@
       window.StarterAssets.playCelebrationSound();
       window.StarterAssets.launchConfetti();
 
-      // Automatically save to Android Gallery (Movies/ToonTalk) when running in Android APK
-      await saveBlobToAndroidGallery(blob, lastRenderedMimeType, true);
+      // Automatically save to Android Gallery (Movies/ToonTalk) in background
+      saveBlobToAndroidGallery(blob, lastRenderedMimeType, true).catch(() => {});
     } catch (err) {
       createBtn.disabled = false;
       progressSection.classList.add('hidden');
@@ -954,28 +1018,43 @@
 
   async function saveBlobToAndroidGallery(blob, mimeType, isAutoSave = false) {
     if (!blob) return;
+    const ext = (mimeType || '').toLowerCase().includes('mp4') ? 'mp4' : 'webm';
+    const fileName = `ToonTalk_${Date.now()}.${ext}`;
+
+    const dlBtn = document.getElementById('btn-download-video');
+    if (dlBtn && lastRenderedUrl) {
+      dlBtn.href = lastRenderedUrl;
+      dlBtn.download = fileName;
+    }
+
     try {
-      const base64Data = await blobToBase64(blob);
-      const res = await callNativeBridge('saveVideoToGallery', {
-        base64Data,
-        mimeType
-      });
-      if (res && res.ok) {
-        const badge = document.getElementById('gallery-save-status');
-        badge.textContent = `✅ Saved to Gallery (${res.savedPath || 'Movies/ToonTalk'})`;
-        badge.classList.remove('hidden');
-        return true;
+      if (window.AndroidBridge && typeof window.AndroidBridge.saveVideoToGallery === 'function') {
+        const base64Data = await blobToBase64(blob);
+        const res = await callNativeBridge('saveVideoToGallery', {
+          base64Data,
+          mimeType
+        });
+        if (res && res.ok) {
+          const badge = document.getElementById('gallery-save-status');
+          badge.textContent = `✅ Saved to Gallery (${res.savedPath || 'Movies/ToonTalk'})`;
+          badge.classList.remove('hidden');
+          return true;
+        }
       }
     } catch (_) {}
-    if (!isAutoSave) {
-      // Trigger browser file download fallback (.mp4 if supported, otherwise .webm)
-      const ext = (mimeType || '').toLowerCase().includes('mp4') ? 'mp4' : 'webm';
+
+    if (!isAutoSave && lastRenderedUrl) {
+      // Trigger direct browser download
       const a = document.createElement('a');
       a.href = lastRenderedUrl;
-      a.download = `ToonTalk_${Date.now()}.${ext}`;
+      a.download = fileName;
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
+      setTimeout(() => document.body.removeChild(a), 100);
+
+      const badge = document.getElementById('gallery-save-status');
+      badge.textContent = `✅ Download started: ${fileName}`;
+      badge.classList.remove('hidden');
     }
     return false;
   }
@@ -1061,8 +1140,8 @@
         showFriendlyError('Unsupported video format! Please pick an MP4, WebM, or MOV video.');
         return;
       }
-      if (file.size > 180 * 1024 * 1024) {
-        showFriendlyError('Video file is too large (over 180MB). Please pick a shorter clip!');
+      if (file.size > 1024 * 1024 * 1024) {
+        showFriendlyError('Video file exceeds 1GB limit. Please pick a video under 1GB!');
         return;
       }
 
@@ -1209,7 +1288,27 @@
       goToStep(4);
     });
 
-    // STEP 4: Voices
+    // STEP 4: Voices & Duo Presets
+    document.querySelectorAll('.voice-duo-chip').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        window.StarterAssets.playPopSound(1.2);
+        const duoKey = chip.getAttribute('data-duo');
+        const preset = VOICE_DUO_PRESETS[duoKey];
+        if (!preset) return;
+
+        document.querySelectorAll('.voice-duo-chip').forEach(c => c.classList.remove('selected'));
+        chip.classList.add('selected');
+
+        Object.assign(settings, preset);
+        saveSettings();
+        applySettingsToDom();
+
+        scriptLines.forEach(l => l.audioBuffer = null);
+        renderVoiceClipsList();
+        generateAllVoiceClips();
+      });
+    });
+
     document.getElementById('select-voice-a').addEventListener('change', (e) => {
       settings.voiceA = e.target.value;
       saveSettings();
@@ -1228,17 +1327,58 @@
       renderVoiceClipsList();
     });
 
+    // Speed & Pitch Sliders
+    const spdASlider = document.getElementById('slider-speed-a');
+    if (spdASlider) {
+      spdASlider.addEventListener('input', (e) => {
+        settings.speedA = Number(e.target.value);
+        document.getElementById('val-speed-a').textContent = settings.speedA.toFixed(2) + 'x';
+        saveSettings();
+        scriptLines.forEach((l) => { if (l.speaker === 'A') l.audioBuffer = null; });
+      });
+    }
+
+    const spdBSlider = document.getElementById('slider-speed-b');
+    if (spdBSlider) {
+      spdBSlider.addEventListener('input', (e) => {
+        settings.speedB = Number(e.target.value);
+        document.getElementById('val-speed-b').textContent = settings.speedB.toFixed(2) + 'x';
+        saveSettings();
+        scriptLines.forEach((l) => { if (l.speaker === 'B') l.audioBuffer = null; });
+      });
+    }
+
+    const ptcASlider = document.getElementById('slider-pitch-a');
+    if (ptcASlider) {
+      ptcASlider.addEventListener('input', (e) => {
+        settings.pitchA = Number(e.target.value);
+        document.getElementById('val-pitch-a').textContent = settings.pitchA.toFixed(2) + 'x';
+        saveSettings();
+        scriptLines.forEach((l) => { if (l.speaker === 'A') l.audioBuffer = null; });
+      });
+    }
+
+    const ptcBSlider = document.getElementById('slider-pitch-b');
+    if (ptcBSlider) {
+      ptcBSlider.addEventListener('input', (e) => {
+        settings.pitchB = Number(e.target.value);
+        document.getElementById('val-pitch-b').textContent = settings.pitchB.toFixed(2) + 'x';
+        saveSettings();
+        scriptLines.forEach((l) => { if (l.speaker === 'B') l.audioBuffer = null; });
+      });
+    }
+
     document.getElementById('btn-preview-voice-a').addEventListener('click', async () => {
       window.StarterAssets.playPopSound();
-      const sampleText = `Hey! I am ${settings.charAName || 'A'}, using the ${settings.voiceA} voice!`;
-      const buf = await synthesizeBufferForText(sampleText, settings.voiceA);
+      const sampleText = `Hey! I am ${settings.charAName || 'A'}, speaking with the ${settings.voiceA} voice!`;
+      const buf = await synthesizeBufferForText(sampleText, settings.voiceA, settings.pitchA || 1.0, settings.speedA || 1.0);
       playAudioBufferPreview(buf);
     });
 
     document.getElementById('btn-preview-voice-b').addEventListener('click', async () => {
       window.StarterAssets.playPopSound();
-      const sampleText = `Whoa! And I am ${settings.charBName || 'B'} with the ${settings.voiceB} voice!`;
-      const buf = await synthesizeBufferForText(sampleText, settings.voiceB);
+      const sampleText = `Whoa! And I am ${settings.charBName || 'B'}, reacting with the ${settings.voiceB} voice!`;
+      const buf = await synthesizeBufferForText(sampleText, settings.voiceB, settings.pitchB || 1.0, settings.speedB || 1.0);
       playAudioBufferPreview(buf);
     });
 
@@ -1335,7 +1475,19 @@
       card.addEventListener('click', () => {
         window.StarterAssets.playPopSound(1.1);
         settings.captionTemplate = card.getAttribute('data-tpl');
-        if (settings.captionTemplate === 'pop_bounce') {
+        if (settings.captionTemplate === 'ae_hormozi') {
+          settings.highlightColor = '#3ddc6a';
+        } else if (settings.captionTemplate === 'ae_kinetic') {
+          settings.highlightColor = '#ffd93b';
+        } else if (settings.captionTemplate === 'ae_glow') {
+          settings.highlightColor = '#00f5ff';
+        } else if (settings.captionTemplate === 'ae_beast') {
+          settings.highlightColor = '#ffd93b';
+        } else if (settings.captionTemplate === 'ae_split') {
+          settings.highlightColor = '#ffffff';
+        } else if (settings.captionTemplate === 'ae_wave') {
+          settings.highlightColor = '#ff7aa8';
+        } else if (settings.captionTemplate === 'pop_bounce') {
           settings.highlightColor = '#3ddc6a';
         } else if (settings.captionTemplate === 'classic_yellow') {
           settings.highlightColor = '#ffd93b';
@@ -1394,8 +1546,14 @@
       handleCreateFullVideo();
     });
 
-    document.getElementById('btn-download-video').addEventListener('click', () => {
+    document.getElementById('btn-download-video').addEventListener('click', (e) => {
       window.StarterAssets.playPopSound(1.15);
+      if (lastRenderedBlob && lastRenderedUrl) {
+        const ext = (lastRenderedMimeType || '').includes('mp4') ? 'mp4' : 'webm';
+        const fileName = `ToonTalk_${Date.now()}.${ext}`;
+        e.currentTarget.href = lastRenderedUrl;
+        e.currentTarget.download = fileName;
+      }
       saveBlobToAndroidGallery(lastRenderedBlob, lastRenderedMimeType, false);
     });
 

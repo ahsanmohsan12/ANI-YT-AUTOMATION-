@@ -801,6 +801,40 @@ input[type="range"].cartoon-slider::-webkit-slider-thumb {
   z-index: 150;
 }
 
+/* VOICE DUO CHIPS & SLIDER ENHANCEMENTS */
+.voice-duo-chip {
+  font-size: 13px !important;
+  padding: 6px 12px !important;
+  min-height: 40px !important;
+  border-radius: 999px !important;
+}
+
+.voice-duo-chip.selected {
+  background: var(--yellow) !important;
+  border-color: var(--ink) !important;
+  outline: 2px dashed var(--pink);
+}
+
+.caption-tpl-card[data-tpl^="ae_"] {
+  border-width: 3px;
+  position: relative;
+  overflow: hidden;
+}
+
+.caption-tpl-card[data-tpl^="ae_"]::after {
+  content: 'AE FX';
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  font-size: 9px;
+  font-weight: 900;
+  background: var(--pink);
+  color: #fff;
+  padding: 1px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--ink);
+}
+
 .hidden {
   display: none !important;
 }

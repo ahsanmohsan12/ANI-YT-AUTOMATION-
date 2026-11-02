@@ -187,6 +187,16 @@ fun ToonTalkWebViewHost(modifier: Modifier = Modifier) {
 
           addJavascriptInterface(aiBridge, "AndroidBridge")
 
+          setDownloadListener { url, _, _, mimetype, _ ->
+            try {
+              val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(Uri.parse(url), mimetype ?: "video/mp4")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+              }
+              ctx.startActivity(intent)
+            } catch (_: Exception) {}
+          }
+
           webViewClient = WebViewClient()
           webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest?) {
