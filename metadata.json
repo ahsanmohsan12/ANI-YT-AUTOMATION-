@@ -1,0 +1,6 @@
+{
+  "name": "ToonTalk Studio",
+  "description": "Create viral 9:16 two-character talking videos with AI scripts, voices, and animated captions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

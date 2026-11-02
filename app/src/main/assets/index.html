@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>ToonTalk Studio</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <canvas id="confetti-canvas" class="confetti-canvas hidden"></canvas>
+
+  <!-- Hidden working media elements -->
+  <video id="working-bg-video" playsinline muted loop crossorigin="anonymous" class="hidden"></video>
+
+  <div class="app-container">
+    <!-- TOP BAR -->
+    <header class="top-bar">
+      <div class="brand-group">
+        <div class="brand-badge">🎬</div>
+        <div>
+          <h1 class="brand-title">ToonTalk Studio</h1>
+          <p class="brand-subtitle">9:16 Viral Character Video Maker</p>
+        </div>
+      </div>
+      <button id="btn-open-settings" class="btn-cartoon btn-white btn-sm" type="button" aria-label="Settings">
+        ⚙️ Key
+      </button>
+    </header>
+
+    <!-- 5 CHUNKY PILL STEP INDICATOR -->
+    <nav class="step-pills-bar" aria-label="Wizard Progress">
+      <div class="step-pills-header">
+        <span id="wizard-step-title">Step 1 of 5: Upload Assets</span>
+        <span id="wizard-step-badge" class="badge-tag">1080×1920 9:16</span>
+      </div>
+      <div class="step-pills-row">
+        <button type="button" class="step-pill active current" data-step="1">
+          <span class="step-pill-num">1</span>
+          <span class="step-pill-label">Assets</span>
+        </button>
+        <button type="button" class="step-pill" data-step="2">
+          <span class="step-pill-num">2</span>
+          <span class="step-pill-label">Idea</span>
+        </button>
+        <button type="button" class="step-pill" data-step="3">
+          <span class="step-pill-num">3</span>
+          <span class="step-pill-label">Script</span>
+        </button>
+        <button type="button" class="step-pill" data-step="4">
+          <span class="step-pill-num">4</span>
+          <span class="step-pill-label">Voices</span>
+        </button>
+        <button type="button" class="step-pill" data-step="5">
+          <span class="step-pill-num">5</span>
+          <span class="step-pill-label">Render</span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- GLOBAL FRIENDLY ERROR BANNER -->
+    <div id="global-error-banner" class="error-banner hidden" role="alert">
+      <div style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:16px;">
+        <span>⚠️ Oops! Something went wrong</span>
+      </div>
+      <div id="global-error-text" style="font-size:14px;line-height:1.35;"></div>
+      <div class="btn-row">
+        <button id="btn-error-retry" type="button" class="btn-cartoon btn-yellow btn-sm">🔄 Retry</button>
+        <button id="btn-error-dismiss" type="button" class="btn-cartoon btn-white btn-sm">✖ Dismiss</button>
+      </div>
+    </div>
+
+    <!-- =========================================================
+         STEP 1: ASSETS (Background Video + Character A & B PNGs)
+         ========================================================= -->
+    <section id="step-panel-1" class="wizard-panel">
+      <div class="cartoon-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+          <h2 class="section-title">🎮 1. Background Video</h2>
+          <button id="btn-use-starter-pack" type="button" class="btn-cartoon btn-green btn-sm">
+            ✨ Load Starter Pack
+          </button>
+        </div>
+        <p class="section-desc">
+          Upload any gameplay or aesthetic video (any size or ratio), or use our built-in 3D Blocky Parkour loop!
+        </p>
+
+        <div class="video-preview-slot" id="bg-preview-container">
+          <canvas id="starter-bg-preview-canvas" width="360" height="200"></canvas>
+          <video id="user-bg-preview-video" playsinline muted loop class="hidden"></video>
+          <span id="bg-source-badge" class="badge-tag" style="position:absolute;top:8px;left:8px;">
+            Starter Parkour Loop Active
+          </span>
+        </div>
+
+        <div class="btn-row">
+          <label class="btn-cartoon btn-pink btn-sm" style="cursor:pointer;">
+            📂 Upload Video
+            <input id="input-bg-video" type="file" accept="video/*" class="hidden" />
+          </label>
+          <button id="btn-reset-starter-bg" type="button" class="btn-cartoon btn-white btn-sm">
+            🕹️ Use Starter Video
+          </button>
+        </div>
+      </div>
+
+      <div class="cartoon-card" style="margin-top:14px;">
+        <h2 class="section-title">🦸 2. Two Character Cutouts (PNG)</h2>
+        <p class="section-desc">
+          Character A stands on the <b>LEFT</b> (confident), Character B stands on the <b>RIGHT</b> (silly/reacting).
+        </p>
+
+        <div class="asset-grid">
+          <!-- CHARACTER A (LEFT) -->
+          <div class="asset-box char-a">
+            <span class="badge-tag" style="background:var(--orange);">⬅️ LEFT • Confident</span>
+            <div class="char-preview-wrap">
+              <img id="preview-char-a" alt="Character A Left" />
+            </div>
+            <div style="width:100%;text-align:left;">
+              <label class="field-label" for="input-char-a-name">Character A Name</label>
+              <input id="input-char-a-name" type="text" class="cartoon-input" value="A" maxlength="18" placeholder="A" />
+            </div>
+            <label class="btn-cartoon btn-orange btn-sm" style="width:100%;cursor:pointer;">
+              🖼️ Upload PNG A
+              <input id="input-char-a-file" type="file" accept="image/png,image/webp,image/*" class="hidden" />
+            </label>
+          </div>
+
+          <!-- CHARACTER B (RIGHT) -->
+          <div class="asset-box char-b">
+            <span class="badge-tag" style="background:var(--purple);">➡️ RIGHT • Silly</span>
+            <div class="char-preview-wrap">
+              <img id="preview-char-b" alt="Character B Right" />
+            </div>
+            <div style="width:100%;text-align:left;">
+              <label class="field-label" for="input-char-b-name">Character B Name</label>
+              <input id="input-char-b-name" type="text" class="cartoon-input" value="B" maxlength="18" placeholder="B" />
+            </div>
+            <label class="btn-cartoon btn-purple btn-sm" style="width:100%;cursor:pointer;">
+              🖼️ Upload PNG B
+              <input id="input-char-b-file" type="file" accept="image/png,image/webp,image/*" class="hidden" />
+            </label>
+          </div>
+        </div>
+
+        <button id="btn-step1-next" type="button" class="btn-cartoon btn-yellow" style="width:100%;margin-top:4px;">
+          Next: Idea &amp; Script Type ➡️
+        </button>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         STEP 2: IDEA + SCRIPT TYPE + LANGUAGE + LENGTH
+         ========================================================= -->
+    <section id="step-panel-2" class="wizard-panel hidden">
+      <div class="cartoon-card yellow-tint">
+        <h2 class="section-title">💡 What's the Video About?</h2>
+        <p class="section-desc">Type a short topic or idea — the app writes the hook, jokes, and punchline!</p>
+
+        <div>
+          <label class="field-label" for="input-idea">Short Idea</label>
+          <input
+            id="input-idea"
+            type="text"
+            class="cartoon-input"
+            placeholder="e.g. octopus, life of a student, Minecraft logic"
+            value="octopus"
+          />
+        </div>
+
+        <div class="pill-choice-row">
+          <button type="button" class="btn-cartoon btn-white btn-sm idea-chip" data-idea="octopus">🐙 Octopus</button>
+          <button type="button" class="btn-cartoon btn-white btn-sm idea-chip" data-idea="life of a student">🎒 Student Life</button>
+          <button type="button" class="btn-cartoon btn-white btn-sm idea-chip" data-idea="Minecraft physics">⛏️ Minecraft Logic</button>
+          <button type="button" class="btn-cartoon btn-white btn-sm idea-chip" data-idea="waking up at 6 AM">⏰ Waking Up Early</button>
+        </div>
+      </div>
+
+      <div class="cartoon-card" style="margin-top:14px;">
+        <h2 class="section-title">🎭 Pick a Script Type</h2>
+        <p class="section-desc">Tap a big card to set the vibe:</p>
+
+        <div id="script-type-grid" class="script-type-grid">
+          <button type="button" class="script-type-card selected" data-type="Funny Facts" style="background:#ffd93b;">
+            <span class="type-icon">😂</span>
+            <span class="type-name">Funny Facts</span>
+          </button>
+          <button type="button" class="script-type-card" data-type="Story" style="background:#bfe9ff;">
+            <span class="type-icon">📖</span>
+            <span class="type-name">Story</span>
+          </button>
+          <button type="button" class="script-type-card" data-type="Debate / Argument" style="background:#ff9a5c;">
+            <span class="type-icon">⚔️</span>
+            <span class="type-name">Debate / Argument</span>
+          </button>
+          <button type="button" class="script-type-card" data-type="Roast Battle" style="background:#ff7aa8;">
+            <span class="type-icon">🔥</span>
+            <span class="type-name">Roast Battle</span>
+          </button>
+          <button type="button" class="script-type-card" data-type="Quiz" style="background:#3ddc6a;">
+            <span class="type-icon">🧠</span>
+            <span class="type-name">Quiz</span>
+          </button>
+          <button type="button" class="script-type-card" data-type="Motivational" style="background:#ffd93b;">
+            <span class="type-icon">🚀</span>
+            <span class="type-name">Motivational</span>
+          </button>
+          <button type="button" class="script-type-card" data-type="Horror / Mystery" style="background:#b79cff;">
+            <span class="type-icon">👻</span>
+            <span class="type-name">Horror / Mystery</span>
+          </button>
+          <button type="button" class="script-type-card" data-type="Custom" style="background:#fffdf4;">
+            <span class="type-icon">✨</span>
+            <span class="type-name">Custom Style</span>
+          </button>
+        </div>
+
+        <div id="custom-style-wrap" class="hidden">
+          <label class="field-label" for="input-custom-style">Your Custom Script Style</label>
+          <input
+            id="input-custom-style"
+            type="text"
+            class="cartoon-input"
+            placeholder="e.g. Sarcastic conspiracy theory, pirate accent..."
+          />
+        </div>
+
+        <div>
+          <label class="field-label">🌐 Language</label>
+          <div id="language-pills" class="pill-choice-row">
+            <button type="button" class="pill-choice selected" data-lang="English">🇬🇧 English</button>
+            <button type="button" class="pill-choice" data-lang="Roman Urdu">🇵🇰 Roman Urdu</button>
+            <button type="button" class="pill-choice" data-lang="Hindi">🇮🇳 Hindi</button>
+          </div>
+        </div>
+
+        <div>
+          <label class="field-label">⏱️ Target Video Length</label>
+          <div id="length-pills" class="pill-choice-row">
+            <button type="button" class="pill-choice" data-len="15">15s</button>
+            <button type="button" class="pill-choice selected" data-len="30">30s</button>
+            <button type="button" class="pill-choice" data-len="45">45s</button>
+            <button type="button" class="pill-choice" data-len="60">60s</button>
+          </div>
+        </div>
+
+        <div class="btn-row" style="margin-top:6px;">
+          <button id="btn-step2-back" type="button" class="btn-cartoon btn-white">⬅️ Back</button>
+          <button id="btn-generate-script" type="button" class="btn-cartoon btn-green">✨ Generate Script</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         STEP 3: SCRIPT EDITOR (Editable Lines + Regenerate)
+         ========================================================= -->
+    <section id="step-panel-3" class="wizard-panel hidden">
+      <div id="script-loading-box" class="loading-box hidden">
+        <div class="bouncing-loader-icon">🤖💬</div>
+        <div id="script-loading-msg" style="font-size:18px;font-weight:800;">
+          Teaching Character B how to roast Character A...
+        </div>
+        <div style="font-size:13px;opacity:0.8;">Writing hook, punchlines &amp; max-20-word lines...</div>
+      </div>
+
+      <div id="script-editor-card" class="cartoon-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+          <h2 class="section-title">📝 Edit Dialogue Script</h2>
+          <button id="btn-add-script-line" type="button" class="btn-cartoon btn-blue btn-sm">➕ Add Line</button>
+        </div>
+        <p class="section-desc">
+          Line 1 is the hook, last line is the punchline/comment question. Max 20 words per line!
+        </p>
+
+        <div id="script-lines-container" class="script-lines-list"></div>
+
+        <div class="btn-row" style="margin-top:6px;">
+          <button id="btn-regenerate-script" type="button" class="btn-cartoon btn-pink">🔄 Regenerate</button>
+          <button id="btn-step3-next" type="button" class="btn-cartoon btn-yellow">Next: Voices ➡️</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         STEP 4: VOICES (2 Prebuilt Voices + Per-Line AudioBuffers)
+         ========================================================= -->
+    <section id="step-panel-4" class="wizard-panel hidden">
+      <div class="cartoon-card purple-tint">
+        <h2 class="section-title">🎙️ Choose Character Voices</h2>
+        <p class="section-desc">
+          Pick two distinct prebuilt voices. We generate one AudioBuffer clip per line with a 0.15s gap between lines!
+        </p>
+
+        <div class="asset-grid">
+          <!-- Voice A -->
+          <div class="asset-box char-a">
+            <span id="voice-label-char-a" class="badge-tag" style="background:var(--orange);">Character A Voice</span>
+            <select id="select-voice-a" class="cartoon-select" aria-label="Character A Voice">
+              <option value="Puck" selected>Puck (Confident &amp; Punchy)</option>
+              <option value="Charon">Charon (Deep &amp; Bold)</option>
+              <option value="Fenrir">Fenrir (Fast Hype)</option>
+              <option value="Kore">Kore (Bright &amp; Snappy)</option>
+              <option value="Aoede">Aoede (Smooth Storyteller)</option>
+              <option value="Zephyr">Zephyr (Playful &amp; Quirky)</option>
+            </select>
+            <button id="btn-preview-voice-a" type="button" class="btn-cartoon btn-orange btn-sm" style="width:100%;">
+              🔊 Preview A
+            </button>
+          </div>
+
+          <!-- Voice B -->
+          <div class="asset-box char-b">
+            <span id="voice-label-char-b" class="badge-tag" style="background:var(--purple);">Character B Voice</span>
+            <select id="select-voice-b" class="cartoon-select" aria-label="Character B Voice">
+              <option value="Zephyr" selected>Zephyr (Silly &amp; Reacting)</option>
+              <option value="Kore">Kore (Expressive &amp; High)</option>
+              <option value="Puck">Puck (Energetic Sidekick)</option>
+              <option value="Fenrir">Fenrir (Dramatic Reactor)</option>
+              <option value="Aoede">Aoede (Sarcastic Tone)</option>
+              <option value="Charon">Charon (Deadpan Deep)</option>
+            </select>
+            <button id="btn-preview-voice-b" type="button" class="btn-cartoon btn-purple btn-sm" style="width:100%;">
+              🔊 Preview B
+            </button>
+          </div>
+        </div>
+
+        <button id="btn-generate-all-voices" type="button" class="btn-cartoon btn-green" style="width:100%;">
+          ⚡ Generate All Line Voices
+        </button>
+
+        <div id="voices-loading-box" class="loading-box hidden">
+          <div class="bouncing-loader-icon">🎧🎶</div>
+          <div id="voices-loading-msg" style="font-size:16px;font-weight:800;">
+            Synthesizing voice clips...
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+          <span style="font-size:14px;font-weight:800;">Line Audio Clips</span>
+          <span id="total-audio-duration-badge" class="badge-tag" style="background:var(--yellow);">
+            Total Length: 0.0s (incl. 0.15s gaps)
+          </span>
+        </div>
+
+        <div id="voice-clips-list" class="script-lines-list"></div>
+
+        <div class="btn-row">
+          <button id="btn-step4-back" type="button" class="btn-cartoon btn-white">⬅️ Script</button>
+          <button id="btn-step4-next" type="button" class="btn-cartoon btn-yellow">Next: Framing &amp; Captions ➡️</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         STEP 5: BACKGROUND FRAMING, CHARACTERS, CAPTIONS & RENDER
+         ========================================================= -->
+    <section id="step-panel-5" class="wizard-panel hidden">
+      <!-- LIVE 9:16 CANVAS PREVIEW CARD -->
+      <div class="cartoon-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+          <h2 class="section-title">📱 Live 9:16 Preview</h2>
+          <button id="btn-toggle-live-preview" type="button" class="btn-cartoon btn-yellow btn-sm">
+            ▶️ Play Preview
+          </button>
+        </div>
+
+        <div class="studio-canvas-shell">
+          <canvas id="live-preview-canvas" width="1080" height="1920"></canvas>
+        </div>
+
+        <!-- Studio Settings Sub-Tabs -->
+        <div class="studio-tabs-row">
+          <button type="button" class="btn-cartoon btn-yellow btn-sm studio-tab-btn" data-tab="framing">
+            🖼️ Framing
+          </button>
+          <button type="button" class="btn-cartoon btn-white btn-sm studio-tab-btn" data-tab="characters">
+            🕺 Characters
+          </button>
+          <button type="button" class="btn-cartoon btn-white btn-sm studio-tab-btn" data-tab="captions">
+            💬 Captions
+          </button>
+        </div>
+
+        <!-- SUB-PANEL A: BACKGROUND FRAMING & VOLUME -->
+        <div id="studio-subpanel-framing" class="studio-subpanel" style="display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <label class="field-label">Background Fit (1080×1920 Full Frame)</label>
+            <div id="bg-fit-pills" class="pill-choice-row">
+              <button type="button" class="pill-choice selected" data-fit="fill">Fill (Crop)</button>
+              <button type="button" class="pill-choice" data-fit="fit_blur">Fit + Blur</button>
+              <button type="button" class="pill-choice" data-fit="custom">Custom</button>
+            </div>
+          </div>
+
+          <!-- Custom Zoom & Pan Sliders -->
+          <div id="custom-framing-sliders" class="hidden" style="display:flex;flex-direction:column;gap:10px;">
+            <div class="slider-group">
+              <div class="slider-header">
+                <span>🔍 Zoom</span>
+                <span id="val-bg-zoom">120%</span>
+              </div>
+              <input id="slider-bg-zoom" type="range" class="cartoon-slider" min="100" max="200" value="120" />
+            </div>
+            <div class="slider-group">
+              <div class="slider-header">
+                <span>↔️ Horizontal Position</span>
+                <span id="val-bg-pan-x">0%</span>
+              </div>
+              <input id="slider-bg-pan-x" type="range" class="cartoon-slider" min="-100" max="100" value="0" />
+            </div>
+            <div class="slider-group">
+              <div class="slider-header">
+                <span>↕️ Vertical Position</span>
+                <span id="val-bg-pan-y">0%</span>
+              </div>
+              <input id="slider-bg-pan-y" type="range" class="cartoon-slider" min="-100" max="100" value="0" />
+            </div>
+          </div>
+
+          <div>
+            <label class="field-label">✂️ If Background Video is Longer</label>
+            <div id="bg-trim-pills" class="pill-choice-row">
+              <button type="button" class="pill-choice selected" data-trim="zero">Start from 0:00</button>
+              <button type="button" class="pill-choice" data-trim="random">Random Start</button>
+            </div>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-header">
+              <span>🔊 Background Video Sound Volume</span>
+              <span id="val-bg-volume">10%</span>
+            </div>
+            <input id="slider-bg-volume" type="range" class="cartoon-slider" min="0" max="100" value="10" />
+          </div>
+        </div>
+
+        <!-- SUB-PANEL B: CHARACTER POSITION & ANIMATION -->
+        <div id="studio-subpanel-characters" class="studio-subpanel hidden" style="display:flex;flex-direction:column;gap:12px;">
+          <div>
+            <label class="field-label">🤫 Silent Character Mode</label>
+            <div id="silent-mode-pills" class="pill-choice-row">
+              <button type="button" class="pill-choice selected" data-silent="hide">Hide Silent Character</button>
+              <button type="button" class="pill-choice" data-silent="dim_shrink">Dim &amp; Shrink Silent</button>
+            </div>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-header">
+              <span>📐 Character Size (~40% Width Default)</span>
+              <span id="val-char-size">100%</span>
+            </div>
+            <input id="slider-char-size" type="range" class="cartoon-slider" min="60" max="140" value="100" />
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-header">
+              <span>↕️ Vertical Position (50% Middle Default)</span>
+              <span id="val-char-vert">50%</span>
+            </div>
+            <input id="slider-char-vert" type="range" class="cartoon-slider" min="25" max="75" value="50" />
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-header">
+              <span>↔️ Distance From Screen Edges</span>
+              <span id="val-char-edge">4%</span>
+            </div>
+            <input id="slider-char-edge" type="range" class="cartoon-slider" min="0" max="20" value="4" />
+          </div>
+        </div>
+
+        <!-- SUB-PANEL C: CAPTIONS ENGINE -->
+        <div id="studio-subpanel-captions" class="studio-subpanel hidden" style="display:flex;flex-direction:column;gap:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span class="field-label" style="margin:0;">💬 Burned-in Captions</span>
+            <button id="btn-toggle-captions" type="button" class="btn-cartoon btn-green btn-sm">
+              Captions: ON ✅
+            </button>
+          </div>
+
+          <div id="captions-controls-body" style="display:flex;flex-direction:column;gap:12px;">
+            <label class="field-label">🎨 Caption Template (Live Preview)</label>
+            <div id="caption-template-grid" class="caption-templates-grid">
+              <button type="button" class="caption-tpl-card selected" data-tpl="classic_yellow">
+                <span class="caption-tpl-preview" style="background:#1b1b1b;color:#ffd93b;">CLASSIC</span>
+                <span style="font-size:12px;font-weight:800;">Classic Yellow</span>
+              </button>
+              <button type="button" class="caption-tpl-card" data-tpl="pop_bounce">
+                <span class="caption-tpl-preview" style="background:#1b1b1b;color:#3ddc6a;">POP BOUNCE</span>
+                <span style="font-size:12px;font-weight:800;">Pop Bounce</span>
+              </button>
+              <button type="button" class="caption-tpl-card" data-tpl="neon_glow">
+                <span class="caption-tpl-preview" style="background:#160829;color:#00f5ff;text-shadow:0 0 6px #ff7aa8;">NEON GLOW</span>
+                <span style="font-size:12px;font-weight:800;">Neon Glow</span>
+              </button>
+              <button type="button" class="caption-tpl-card" data-tpl="minimal_clean">
+                <span class="caption-tpl-preview" style="background:#4a5568;color:#ffffff;">Minimal Clean</span>
+                <span style="font-size:12px;font-weight:800;">Minimal Clean</span>
+              </button>
+              <button type="button" class="caption-tpl-card" data-tpl="boxed">
+                <span class="caption-tpl-preview" style="background:#1b1b1b;color:#ffffff;border:2px solid #ffd93b;">[BOXED]</span>
+                <span style="font-size:12px;font-weight:800;">Boxed</span>
+              </button>
+              <button type="button" class="caption-tpl-card" data-tpl="karaoke">
+                <span class="caption-tpl-preview" style="background:#1b1b1b;color:#ff7aa8;">KARAOKE 🎤</span>
+                <span style="font-size:12px;font-weight:800;">Karaoke Fill</span>
+              </button>
+              <button type="button" class="caption-tpl-card" data-tpl="comic" style="grid-column:span 2;">
+                <span class="caption-tpl-preview" style="background:#ff5c5c;color:#ffd93b;font-family:'Bangers',cursive;letter-spacing:1px;">💥 COMIC ACTION BOOM!</span>
+                <span style="font-size:12px;font-weight:800;">Comic Style</span>
+              </button>
+            </div>
+
+            <div>
+              <label class="field-label" for="select-caption-font">🔤 Bold Font (Supports EN / Urdu / Hindi)</label>
+              <select id="select-caption-font" class="cartoon-select">
+                <option value="Fredoka" selected>Fredoka Bold (Rounded Cartoon)</option>
+                <option value="Baloo 2">Baloo 2 ExtraBold (Hindi / Devanagari &amp; Urdu Ready)</option>
+                <option value="Bubblegum Sans">Bubblegum Sans (Sticker Arcade)</option>
+                <option value="Bangers">Bangers (Comic Book Punch)</option>
+                <option value="Poppins">Poppins Black (Clean Viral Shorts)</option>
+              </select>
+            </div>
+
+            <div class="slider-group">
+              <div class="slider-header">
+                <span>🔠 Caption Text Size</span>
+                <span id="val-caption-size">74px</span>
+              </div>
+              <input id="slider-caption-size" type="range" class="cartoon-slider" min="44" max="104" value="74" />
+            </div>
+
+            <div>
+              <label class="field-label">📍 Caption Vertical Position</label>
+              <div id="caption-pos-pills" class="pill-choice-row">
+                <button type="button" class="pill-choice" data-pos="top">Top</button>
+                <button type="button" class="pill-choice" data-pos="center">Center</button>
+                <button type="button" class="pill-choice selected" data-pos="bottom">Bottom Third</button>
+              </div>
+            </div>
+
+            <div>
+              <label class="field-label">🔢 Words Per Screen</label>
+              <div id="words-per-screen-pills" class="pill-choice-row">
+                <button type="button" class="pill-choice" data-wps="1">1 Word</button>
+                <button type="button" class="pill-choice" data-wps="2">2 Words</button>
+                <button type="button" class="pill-choice selected" data-wps="3">3 Words</button>
+                <button type="button" class="pill-choice" data-wps="4">4 Words</button>
+              </div>
+            </div>
+
+            <div>
+              <label class="field-label">🌈 Active Word Highlight Color</label>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <button type="button" class="btn-cartoon btn-sm color-swatch" data-color="#ffd93b" style="background:#ffd93b;min-width:48px;">🟡</button>
+                <button type="button" class="btn-cartoon btn-sm color-swatch" data-color="#3ddc6a" style="background:#3ddc6a;min-width:48px;">🟢</button>
+                <button type="button" class="btn-cartoon btn-sm color-swatch" data-color="#ff7aa8" style="background:#ff7aa8;min-width:48px;">🩷</button>
+                <button type="button" class="btn-cartoon btn-sm color-swatch" data-color="#ff9a5c" style="background:#ff9a5c;min-width:48px;">🟠</button>
+                <button type="button" class="btn-cartoon btn-sm color-swatch" data-color="#00f5ff" style="background:#00f5ff;min-width:48px;">🩵</button>
+                <input id="input-highlight-color" type="color" value="#ffd93b" style="width:48px;height:48px;border:3px solid #1b1b1b;border-radius:12px;cursor:pointer;background:#fff;" aria-label="Custom Highlight Color" />
+              </div>
+            </div>
+
+            <div class="slider-group">
+              <div class="slider-header">
+                <span>🖊️ Outline Thickness</span>
+                <span id="val-outline-thickness">10px</span>
+              </div>
+              <input id="slider-outline-thickness" type="range" class="cartoon-slider" min="0" max="20" value="10" />
+            </div>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span class="field-label" style="margin:0;">🏷️ Show Speaker Name Tag</span>
+              <button id="btn-toggle-speaker-tag" type="button" class="btn-cartoon btn-yellow btn-sm">
+                Speaker Tag: ON ✅
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CREATE VIDEO & PROGRESS BAR CARD -->
+      <div class="cartoon-card green-tint" style="margin-top:14px;">
+        <h2 class="section-title">🎬 Render 1080×1920 Video</h2>
+        <p class="section-desc">
+          Mixes dialogue AudioBuffers + background audio into MediaRecorder and burns in characters &amp; captions!
+        </p>
+
+        <button id="btn-create-video" type="button" class="btn-cartoon btn-green" style="width:100%;font-size:18px;">
+          🚀 Create Video Now!
+        </button>
+
+        <!-- Progress bar with bouncing mascot -->
+        <div id="render-progress-section" class="hidden">
+          <div class="progress-track-wrap">
+            <div id="render-mascot" class="progress-mascot">🏃‍♂️</div>
+            <div class="progress-track">
+              <div id="render-progress-fill" class="progress-fill"></div>
+              <div id="render-progress-label" class="progress-label-overlay">0% • Est. 0s left</div>
+            </div>
+          </div>
+          <p id="render-funny-status" style="text-align:center;font-size:14px;margin:4px 0 0 0;font-weight:800;">
+            Mixing voice tracks and drawing cartoon frames...
+          </p>
+        </div>
+
+        <!-- FINISHED VIDEO PREVIEW & DOWNLOAD / SHARE / MAKE ANOTHER -->
+        <div id="render-output-section" class="hidden" style="display:flex;flex-direction:column;gap:12px;margin-top:6px;">
+          <div class="badge-tag" style="background:var(--yellow);align-self:center;font-size:14px;">
+            🎉 Your 9:16 Video is Ready!
+          </div>
+
+          <div class="studio-canvas-shell">
+            <video id="rendered-output-video" controls playsinline style="width:100%;height:100%;object-fit:contain;background:#000;"></video>
+          </div>
+
+          <div id="gallery-save-status" class="badge-tag hidden" style="background:var(--green);align-self:center;">
+            ✅ Saved to Android Gallery (Movies/ToonTalk)
+          </div>
+
+          <div class="btn-row">
+            <button id="btn-download-video" type="button" class="btn-cartoon btn-yellow">
+              💾 Download / Save
+            </button>
+            <button id="btn-share-video" type="button" class="btn-cartoon btn-pink">
+              📤 Share
+            </button>
+          </div>
+
+          <button id="btn-make-another" type="button" class="btn-cartoon btn-orange" style="width:100%;">
+            🔁 Make Another (Keep Assets)
+          </button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- SETTINGS MODAL (Local Gemini API Key & Reset) -->
+  <div id="settings-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+    <div class="modal-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h3 id="settings-modal-title" class="section-title" style="font-size:20px;">⚙️ API Key &amp; Settings</h3>
+        <button id="btn-close-settings" type="button" class="btn-cartoon btn-white btn-sm">✖</button>
+      </div>
+      <p style="font-size:13px;line-height:1.4;margin:0;">
+        In AI Studio, Gemini AI is pre-connected via Firebase AI Logic automatically. If exporting as a standalone Capacitor APK, you can optionally save your own Gemini API key locally on this device:
+      </p>
+      <div>
+        <label class="field-label" for="input-local-api-key">Optional Gemini API Key (Stored Locally)</label>
+        <input
+          id="input-local-api-key"
+          type="password"
+          class="cartoon-input"
+          placeholder="Paste AIza... key (optional)"
+          autocomplete="off"
+        />
+      </div>
+      <div class="btn-row">
+        <button id="btn-save-settings" type="button" class="btn-cartoon btn-green btn-sm">💾 Save Key</button>
+        <button id="btn-clear-settings" type="button" class="btn-cartoon btn-pink btn-sm">🗑️ Reset Prefs</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="starter_assets.js"></script>
+  <script src="render_engine.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
