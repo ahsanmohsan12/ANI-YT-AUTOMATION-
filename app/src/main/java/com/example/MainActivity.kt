@@ -1,9 +1,12 @@
 package com.example
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.view.ViewGroup
 import android.webkit.PermissionRequest
@@ -17,6 +20,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -27,6 +31,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
 import com.example.ui.theme.CartoonSkyBlue
 import com.example.ui.theme.MyApplicationTheme
 
@@ -78,7 +84,39 @@ fun ToonTalkWebViewHost(modifier: Modifier = Modifier) {
   var webViewRef by remember { mutableStateOf<WebView?>(null) }
   var fileUploadCallback by remember { mutableStateOf<ValueCallback<Array<Uri>>?>(null) }
 
-  val fileChooserLauncher = rememberLauncherForActivityResult(
+  // Runtime permission request for notifications on Android 13+ (API 33+)
+  val notificationPermissionLauncher = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.RequestPermission()
+  ) { _ -> }
+
+  LaunchedEffect(Unit) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+      val granted = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.POST_NOTIFICATIONS
+      ) == PackageManager.PERMISSION_GRANTED
+      if (!granted) {
+        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+      }
+    }
+  }
+
+  // Zero-permission Android Photo/Video Picker for selecting background videos or character PNGs
+  val visualMediaPickerLauncher = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.PickVisualMedia()
+  ) { uri: Uri? ->
+    val callback = fileUploadCallback
+    fileUploadCallback = null
+    if (callback != null) {
+      if (uri != null) {
+        callback.onReceiveValue(arrayOf(uri))
+      } else {
+        callback.onReceiveValue(null)
+      }
+    }
+  }
+
+  val fallbackFileChooserLauncher = rememberLauncherForActivityResult(
     contract = ActivityResultContracts.StartActivityForResult()
   ) { result ->
     val callback = fileUploadCallback
@@ -162,13 +200,32 @@ fun ToonTalkWebViewHost(modifier: Modifier = Modifier) {
             ): Boolean {
               fileUploadCallback?.onReceiveValue(null)
               fileUploadCallback = filePathCallback
+              val acceptTypes = fileChooserParams?.acceptTypes?.joinToString(",")?.lowercase().orEmpty()
+
               return try {
-                val chooserIntent = fileChooserParams?.createIntent() ?: Intent(Intent.ACTION_GET_CONTENT).apply {
-                  addCategory(Intent.CATEGORY_OPENABLE)
-                  type = "*/*"
+                when {
+                  acceptTypes.contains("video") -> {
+                    visualMediaPickerLauncher.launch(
+                      PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
+                    )
+                    true
+                  }
+                  acceptTypes.contains("image") -> {
+                    visualMediaPickerLauncher.launch(
+                      PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                    true
+                  }
+                  else -> {
+                    val chooserIntent = fileChooserParams?.createIntent()
+                      ?: Intent(Intent.ACTION_GET_CONTENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                      }
+                    fallbackFileChooserLauncher.launch(chooserIntent)
+                    true
+                  }
                 }
-                fileChooserLauncher.launch(chooserIntent)
-                true
               } catch (e: Exception) {
                 fileUploadCallback = null
                 false

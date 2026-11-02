@@ -156,7 +156,14 @@ class ToonTalkAiBridge(
         val lengthSec = req.optInt("lengthSec", 30)
         val charAName = req.optString("charAName", "A")
         val charBName = req.optString("charBName", "B")
-        val customApiKey = req.optString("apiKey", "").trim()
+        val prefs = context.getSharedPreferences("toontalk_native_prefs", Context.MODE_PRIVATE)
+        val payloadKey = req.optString("apiKey", "").trim()
+        if (payloadKey.isNotEmpty()) {
+          prefs.edit().putString("custom_gemini_api_key", payloadKey).apply()
+        }
+        val customApiKey = payloadKey.ifEmpty {
+          prefs.getString("custom_gemini_api_key", "")?.trim().orEmpty()
+        }
 
         val targetLineCount = when {
           lengthSec <= 15 -> 4
