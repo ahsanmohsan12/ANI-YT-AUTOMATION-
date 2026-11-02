@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>ToonTalk Studio</title>
+  <title>ANI SHORTS</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -18,8 +18,8 @@
       <div class="brand-group">
         <div class="brand-badge">🎬</div>
         <div>
-          <h1 class="brand-title">ToonTalk Studio</h1>
-          <p class="brand-subtitle">9:16 Viral Character Video Maker</p>
+          <h1 class="brand-title">ANI SHORTS</h1>
+          <p class="brand-subtitle">Viral 9:16 Cartoon Shorts Maker</p>
         </div>
       </div>
       <button id="btn-open-settings" class="btn-cartoon btn-white btn-sm" type="button" aria-label="Settings">
@@ -291,6 +291,43 @@
           Pick realistic human or AI character voices with custom speed and pitch controls. Or choose a quick Duo Preset!
         </p>
 
+        <!-- VOICE ENGINE / THIRD-PARTY PROVIDER SELECTOR -->
+        <div style="margin-bottom:14px;background:rgba(255,255,255,0.92);padding:10px 12px;border-radius:14px;border:2px solid var(--ink);box-shadow:3px 3px 0 var(--ink);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <label class="field-label" style="margin:0;font-size:13px;">🎙️ Voice Engine &amp; AI Provider</label>
+            <button type="button" id="btn-quick-voice-api-key" class="btn-cartoon btn-white btn-sm" style="font-size:11px;padding:3px 8px;">🔑 Manage API Keys</button>
+          </div>
+          <div id="voice-provider-pills" class="pill-choice-row" style="flex-wrap:wrap;gap:6px;">
+            <button type="button" class="btn-cartoon btn-yellow btn-sm voice-provider-pill" data-provider="builtin">🏢 Built-in Studio</button>
+            <button type="button" class="btn-cartoon btn-white btn-sm voice-provider-pill" data-provider="elevenlabs">⚡ ElevenLabs AI (Ultra-Realistic)</button>
+            <button type="button" class="btn-cartoon btn-white btn-sm voice-provider-pill" data-provider="openai">🤖 OpenAI TTS Models</button>
+          </div>
+
+          <!-- Inline Provider Key Banner (when ElevenLabs or OpenAI selected) -->
+          <div id="provider-key-banner" class="hidden" style="margin-top:10px;padding:8px 10px;background:#fff8db;border:2px dashed #d49500;border-radius:10px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+              <span id="provider-key-banner-label" style="font-size:12px;font-weight:700;color:#784600;">🔑 ElevenLabs API Key:</span>
+              <div style="display:flex;gap:6px;flex:1;min-width:180px;">
+                <input type="password" id="input-inline-provider-key" class="cartoon-input" style="font-size:12px;padding:4px 8px;height:32px;" placeholder="Paste API Key here..." />
+                <button type="button" id="btn-inline-save-provider-key" class="btn-cartoon btn-green btn-sm" style="font-size:11px;padding:4px 10px;">Save</button>
+              </div>
+            </div>
+            <div id="provider-key-status" style="font-size:11px;margin-top:4px;color:#8a5e00;">💡 Stored securely on your device. Unlocks ultra-realistic vocal models!</div>
+          </div>
+
+          <!-- Custom ElevenLabs Voice ID inputs (optional overrides) -->
+          <div id="elevenlabs-custom-ids-box" class="hidden" style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:140px;">
+              <label style="font-size:11px;font-weight:700;color:var(--ink);">Char A Custom Voice ID (optional):</label>
+              <input type="text" id="input-custom-voice-id-a" class="cartoon-input" style="font-size:11px;padding:4px 6px;" placeholder="e.g. 21m00Tcm4TlvDq8ikWAM" />
+            </div>
+            <div style="flex:1;min-width:140px;">
+              <label style="font-size:11px;font-weight:700;color:var(--ink);">Char B Custom Voice ID (optional):</label>
+              <input type="text" id="input-custom-voice-id-b" class="cartoon-input" style="font-size:11px;padding:4px 6px;" placeholder="e.g. pNInz6obpgDQGcFmaJgB" />
+            </div>
+          </div>
+        </div>
+
         <!-- QUICK VOICE DUO PRESETS -->
         <div style="margin-bottom:12px;">
           <label class="field-label">⚡ Quick Voice Duo Presets</label>
@@ -300,7 +337,22 @@
             <button type="button" class="btn-cartoon btn-white btn-sm voice-duo-chip" data-duo="trailer">🎬 Movie Trailer</button>
             <button type="button" class="btn-cartoon btn-white btn-sm voice-duo-chip" data-duo="story">📖 British Story</button>
             <button type="button" class="btn-cartoon btn-white btn-sm voice-duo-chip" data-duo="desi">🇮🇳 Desi Vibes</button>
+            <button type="button" class="btn-cartoon btn-white btn-sm voice-duo-chip" data-duo="bollywood">🎭 Bollywood Drama</button>
+            <button type="button" class="btn-cartoon btn-white btn-sm voice-duo-chip" data-duo="urdu">🇵🇰 Urdu Podcast</button>
+            <button type="button" class="btn-cartoon btn-white btn-sm voice-duo-chip" data-duo="bbcdoc">🎙️ BBC Docu</button>
+            <button type="button" class="btn-cartoon btn-white btn-sm voice-duo-chip" data-duo="action">💥 Action Heroes</button>
             <button type="button" class="btn-cartoon btn-white btn-sm voice-duo-chip" data-duo="anime">✨ Anime Quirky</button>
+          </div>
+        </div>
+
+        <!-- VOICE EXPRESSION MOOD PILLS -->
+        <div style="margin-bottom:12px;">
+          <label class="field-label">🎭 Voice Expression / Vibe</label>
+          <div id="voice-mood-pills" class="pill-choice-row" style="flex-wrap:wrap;gap:6px;">
+            <button type="button" class="btn-cartoon btn-yellow btn-sm voice-mood-pill" data-mood="natural">🗣️ Conversational</button>
+            <button type="button" class="btn-cartoon btn-white btn-sm voice-mood-pill" data-mood="hype">🔥 Fast Hype</button>
+            <button type="button" class="btn-cartoon btn-white btn-sm voice-mood-pill" data-mood="chill">☕ Chill &amp; Calm</button>
+            <button type="button" class="btn-cartoon btn-white btn-sm voice-mood-pill" data-mood="dramatic">🎭 Dramatic Deep</button>
           </div>
         </div>
 
@@ -309,27 +361,42 @@
           <div class="asset-box char-a">
             <span id="voice-label-char-a" class="badge-tag" style="background:var(--orange);">Character A Voice</span>
             <select id="select-voice-a" class="cartoon-select" aria-label="Character A Voice">
-              <optgroup label="🌟 Natural Human Voices">
-                <option value="Alex" selected>Alex (Natural Confident Male)</option>
-                <option value="Emma">Emma (Natural Warm Female)</option>
-                <option value="Marcus">Marcus (Deep Studio Male)</option>
-                <option value="Chloe">Chloe (Snappy Energetic Female)</option>
-                <option value="Leo">Leo (Casual Teen Guy)</option>
-                <option value="Maya">Maya (Expressive Female)</option>
-                <option value="Oliver">Oliver (British Narrator)</option>
-                <option value="Lily">Lily (Sweet British Female)</option>
-                <option value="Arjun">Arjun (Indian English Male)</option>
-                <option value="Priya">Priya (Indian English Female)</option>
+              <optgroup label="🇺🇸 Natural American">
+                <option value="Alex" selected>Alex (Casual Confident Podcaster Male)</option>
+                <option value="Emma">Emma (Warm &amp; Conversational Female)</option>
+                <option value="Marcus">Marcus (Deep Studio Movie Trailer Male)</option>
+                <option value="Chloe">Chloe (Snappy High-Energy Female)</option>
+                <option value="Leo">Leo (Chill Gamer Teen Male)</option>
+                <option value="Maya">Maya (Empathetic Storyteller Female)</option>
+                <option value="Sam">Sam (Neutral Documentary Male)</option>
+                <option value="Sophia">Sophia (Polished News Anchor Female)</option>
+                <option value="Jack">Jack (Raspy Action Hero Male)</option>
+                <option value="Ethan">Ethan (Friendly Tech Reviewer Male)</option>
               </optgroup>
-              <optgroup label="🤖 Gemini AI Voices">
-                <option value="Puck">Puck (Confident &amp; Punchy)</option>
-                <option value="Charon">Charon (Deep &amp; Bold)</option>
-                <option value="Fenrir">Fenrir (Fast Hype)</option>
-                <option value="Kore">Kore (Bright &amp; Snappy)</option>
-                <option value="Aoede">Aoede (Smooth Storyteller)</option>
-                <option value="Zephyr">Zephyr (Playful &amp; Quirky)</option>
-                <option value="Leda">Leda (Calm Melodic)</option>
-                <option value="Orpheus">Orpheus (Dramatic Epic)</option>
+              <optgroup label="🇬🇧 British &amp; Aussie Charisma">
+                <option value="Oliver">Oliver (Refined British Gentleman Male)</option>
+                <option value="Lily">Lily (Cheerful British Creator Female)</option>
+                <option value="Arthur">Arthur (Vintage BBC Documentary Male)</option>
+                <option value="Mia">Mia (Lively Aussie Creator Female)</option>
+                <option value="Liam">Liam (Upbeat London Streamer Male)</option>
+              </optgroup>
+              <optgroup label="🇮🇳 Desi (Hindi / Urdu / Hinglish)">
+                <option value="Arjun">Arjun (Desi Tech Guy / Hinglish Male)</option>
+                <option value="Priya">Priya (Natural Indian English / Hindi Female)</option>
+                <option value="Kabir">Kabir (Deep Bollywood Narrator Male)</option>
+                <option value="Ananya">Ananya (Vibrant Desi Vlogger Female)</option>
+                <option value="Zayd">Zayd (Smooth Roman Urdu / Urdu Male)</option>
+                <option value="Ayesha">Ayesha (Expressive Urdu / Hindi Female)</option>
+              </optgroup>
+              <optgroup label="🤖 Gemini AI &amp; Game Personas">
+                <option value="Puck">Puck (Confident &amp; Punchy Hero)</option>
+                <option value="Charon">Charon (Deep &amp; Grumpy Boss)</option>
+                <option value="Zephyr">Zephyr (Silly Playful Sidekick)</option>
+                <option value="Fenrir">Fenrir (Fast Dramatic Hype)</option>
+                <option value="Kore">Kore (Bright Kawaii Anime)</option>
+                <option value="Aoede">Aoede (Sarcastic Melodic Diva)</option>
+                <option value="Leda">Leda (Calm Melodic Mystic)</option>
+                <option value="Orpheus">Orpheus (Cinematic Epic Narrator)</option>
               </optgroup>
             </select>
 
@@ -358,27 +425,42 @@
           <div class="asset-box char-b">
             <span id="voice-label-char-b" class="badge-tag" style="background:var(--purple);">Character B Voice</span>
             <select id="select-voice-b" class="cartoon-select" aria-label="Character B Voice">
-              <optgroup label="🌟 Natural Human Voices">
-                <option value="Emma" selected>Emma (Natural Warm Female)</option>
-                <option value="Alex">Alex (Natural Confident Male)</option>
-                <option value="Chloe">Chloe (Snappy Energetic Female)</option>
-                <option value="Leo">Leo (Casual Teen Guy)</option>
-                <option value="Maya">Maya (Expressive Female)</option>
-                <option value="Marcus">Marcus (Deep Studio Male)</option>
-                <option value="Lily">Lily (Sweet British Female)</option>
-                <option value="Oliver">Oliver (British Narrator)</option>
-                <option value="Priya">Priya (Indian English Female)</option>
-                <option value="Arjun">Arjun (Indian English Male)</option>
+              <optgroup label="🇺🇸 Natural American">
+                <option value="Emma" selected>Emma (Warm &amp; Conversational Female)</option>
+                <option value="Alex">Alex (Casual Confident Podcaster Male)</option>
+                <option value="Chloe">Chloe (Snappy High-Energy Female)</option>
+                <option value="Leo">Leo (Chill Gamer Teen Male)</option>
+                <option value="Maya">Maya (Empathetic Storyteller Female)</option>
+                <option value="Marcus">Marcus (Deep Studio Movie Trailer Male)</option>
+                <option value="Sophia">Sophia (Polished News Anchor Female)</option>
+                <option value="Jack">Jack (Raspy Action Hero Male)</option>
+                <option value="Sam">Sam (Neutral Documentary Male)</option>
+                <option value="Ethan">Ethan (Friendly Tech Reviewer Male)</option>
               </optgroup>
-              <optgroup label="🤖 Gemini AI Voices">
-                <option value="Zephyr">Zephyr (Playful &amp; Quirky)</option>
-                <option value="Kore">Kore (Expressive &amp; High)</option>
-                <option value="Puck">Puck (Energetic Sidekick)</option>
-                <option value="Fenrir">Fenrir (Dramatic Reactor)</option>
-                <option value="Aoede">Aoede (Sarcastic Tone)</option>
-                <option value="Charon">Charon (Deadpan Deep)</option>
-                <option value="Leda">Leda (Calm Melodic)</option>
-                <option value="Orpheus">Orpheus (Dramatic Epic)</option>
+              <optgroup label="🇬🇧 British &amp; Aussie Charisma">
+                <option value="Lily">Lily (Cheerful British Creator Female)</option>
+                <option value="Oliver">Oliver (Refined British Gentleman Male)</option>
+                <option value="Mia">Mia (Lively Aussie Creator Female)</option>
+                <option value="Arthur">Arthur (Vintage BBC Documentary Male)</option>
+                <option value="Liam">Liam (Upbeat London Streamer Male)</option>
+              </optgroup>
+              <optgroup label="🇮🇳 Desi (Hindi / Urdu / Hinglish)">
+                <option value="Priya">Priya (Natural Indian English / Hindi Female)</option>
+                <option value="Arjun">Arjun (Desi Tech Guy / Hinglish Male)</option>
+                <option value="Ananya">Ananya (Vibrant Desi Vlogger Female)</option>
+                <option value="Kabir">Kabir (Deep Bollywood Narrator Male)</option>
+                <option value="Ayesha">Ayesha (Expressive Urdu / Hindi Female)</option>
+                <option value="Zayd">Zayd (Smooth Roman Urdu / Urdu Male)</option>
+              </optgroup>
+              <optgroup label="🤖 Gemini AI &amp; Game Personas">
+                <option value="Zephyr">Zephyr (Silly Playful Sidekick)</option>
+                <option value="Kore">Kore (Bright Kawaii Anime)</option>
+                <option value="Puck">Puck (Confident &amp; Punchy Hero)</option>
+                <option value="Fenrir">Fenrir (Fast Dramatic Hype)</option>
+                <option value="Aoede">Aoede (Sarcastic Melodic Diva)</option>
+                <option value="Charon">Charon (Deep &amp; Grumpy Boss)</option>
+                <option value="Leda">Leda (Calm Melodic Mystic)</option>
+                <option value="Orpheus">Orpheus (Cinematic Epic Narrator)</option>
               </optgroup>
             </select>
 
@@ -619,13 +701,17 @@
             </div>
 
             <div>
-              <label class="field-label" for="select-caption-font">🔤 Bold Font (Supports EN / Urdu / Hindi)</label>
+              <label class="field-label" for="select-caption-font">🔤 Creator Font (Viral Shorts / AE Styles)</label>
               <select id="select-caption-font" class="cartoon-select">
-                <option value="Fredoka" selected>Fredoka Bold (Rounded Cartoon)</option>
-                <option value="Baloo 2">Baloo 2 ExtraBold (Hindi / Devanagari &amp; Urdu Ready)</option>
+                <option value="Luckiest Guy" selected>Luckiest Guy (Iconic YouTuber / MrBeast Style)</option>
+                <option value="Anton">Anton (Bold Tall Impact / Kinetic)</option>
+                <option value="Titan One">Titan One (Bouncy 3D Cartoon Pop)</option>
+                <option value="Montserrat">Montserrat Black (Sleek Modern Shorts)</option>
+                <option value="Bangers">Bangers (Comic Book Action Punch)</option>
+                <option value="Fredoka">Fredoka Bold (Rounded Friendly Cartoon)</option>
+                <option value="Baloo 2">Baloo 2 ExtraBold (Devanagari Hindi &amp; Urdu Ready)</option>
                 <option value="Bubblegum Sans">Bubblegum Sans (Sticker Arcade)</option>
-                <option value="Bangers">Bangers (Comic Book Punch)</option>
-                <option value="Poppins">Poppins Black (Clean Viral Shorts)</option>
+                <option value="Poppins">Poppins Black (Clean Viral Minimal)</option>
               </select>
             </div>
 
@@ -721,15 +807,18 @@
             <video id="rendered-output-video" controls playsinline style="width:100%;height:100%;object-fit:contain;background:#000;"></video>
           </div>
 
-          <div id="gallery-save-status" class="badge-tag hidden" style="background:var(--green);align-self:center;">
-            ✅ Saved to Android Gallery (Movies/ToonTalk)
+          <div id="gallery-save-status" class="badge-tag hidden" style="background:var(--green);align-self:center;font-size:13px;text-align:center;">
+            ✅ Saved to Android Gallery (Movies/AniShorts)
           </div>
 
-          <div class="btn-row">
-            <a id="btn-download-video" class="btn-cartoon btn-yellow" href="#" download="ToonTalk_Video.mp4" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">
-              💾 Download / Save
-            </a>
-            <button id="btn-share-video" type="button" class="btn-cartoon btn-pink">
+          <div class="btn-row" style="flex-wrap:wrap;gap:8px;">
+            <button id="btn-download-video" type="button" class="btn-cartoon btn-yellow" style="flex:1;min-width:140px;">
+              💾 Save to Gallery
+            </button>
+            <button id="btn-play-video" type="button" class="btn-cartoon btn-green" style="flex:1;min-width:140px;">
+              ▶️ Play Video
+            </button>
+            <button id="btn-share-video" type="button" class="btn-cartoon btn-pink" style="flex:1;min-width:100px;">
               📤 Share
             </button>
           </div>
@@ -750,20 +839,45 @@
         <button id="btn-close-settings" type="button" class="btn-cartoon btn-white btn-sm">✖</button>
       </div>
       <p style="font-size:13px;line-height:1.4;margin:0;">
-        In AI Studio, Gemini AI is pre-connected via Firebase AI Logic automatically. If exporting as a standalone Capacitor APK, you can optionally save your own Gemini API key locally on this device:
+        Manage your AI model API keys securely on this device. Use ElevenLabs or OpenAI for ultra-realistic studio voice synthesis!
       </p>
-      <div>
-        <label class="field-label" for="input-local-api-key">Optional Gemini API Key (Stored Locally)</label>
-        <input
-          id="input-local-api-key"
-          type="password"
-          class="cartoon-input"
-          placeholder="Paste AIza... key (optional)"
-          autocomplete="off"
-        />
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:4px;">
+        <div>
+          <label class="field-label" for="input-elevenlabs-key">⚡ ElevenLabs Voice API Key</label>
+          <input
+            id="input-elevenlabs-key"
+            type="password"
+            class="cartoon-input"
+            placeholder="Paste ElevenLabs xi-api-key..."
+            autocomplete="off"
+          />
+          <small style="font-size:11px;color:#555;display:block;margin-top:2px;">Get from elevenlabs.io. Unlocks Adam, Rachel, Antoni, and custom voice models.</small>
+        </div>
+        <div>
+          <label class="field-label" for="input-openai-key">🤖 OpenAI Voice API Key</label>
+          <input
+            id="input-openai-key"
+            type="password"
+            class="cartoon-input"
+            placeholder="Paste OpenAI sk-... key..."
+            autocomplete="off"
+          />
+          <small style="font-size:11px;color:#555;display:block;margin-top:2px;">Get from platform.openai.com. Unlocks Alloy, Echo, Fable, Onyx, Nova, Shimmer.</small>
+        </div>
+        <div>
+          <label class="field-label" for="input-local-api-key">✨ Gemini API Key (Optional)</label>
+          <input
+            id="input-local-api-key"
+            type="password"
+            class="cartoon-input"
+            placeholder="Paste AIza... key (optional)"
+            autocomplete="off"
+          />
+          <small style="font-size:11px;color:#555;display:block;margin-top:2px;">Pre-connected in AI Studio. Only needed if exporting without Firebase.</small>
+        </div>
       </div>
-      <div class="btn-row">
-        <button id="btn-save-settings" type="button" class="btn-cartoon btn-green btn-sm">💾 Save Key</button>
+      <div class="btn-row" style="margin-top:12px;">
+        <button id="btn-save-settings" type="button" class="btn-cartoon btn-green btn-sm">💾 Save Keys</button>
         <button id="btn-clear-settings" type="button" class="btn-cartoon btn-pink btn-sm">🗑️ Reset Prefs</button>
       </div>
     </div>

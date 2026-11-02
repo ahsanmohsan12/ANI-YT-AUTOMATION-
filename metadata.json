@@ -1,6 +1,6 @@
 {
-  "name": "ToonTalk Studio",
-  "description": "Create viral 9:16 two-character talking videos with AI scripts, voices, and animated captions.",
+  "name": "ANI SHORTS",
+  "description": "Create viral 9:16 two-character cartoon short videos with YouTube creator scripts, humanized voices, and After Effects captions.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

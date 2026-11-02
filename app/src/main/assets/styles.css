@@ -33,6 +33,34 @@
   font-style: normal;
 }
 
+@font-face {
+  font-family: 'Luckiest Guy';
+  src: url('fonts/luckiest_guy.ttf') format('truetype');
+  font-weight: 400 900;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Anton';
+  src: url('fonts/anton.ttf') format('truetype');
+  font-weight: 400 900;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Titan One';
+  src: url('fonts/titan_one.ttf') format('truetype');
+  font-weight: 400 900;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'Montserrat';
+  src: url('fonts/montserrat.ttf') format('truetype');
+  font-weight: 400 900;
+  font-style: normal;
+}
+
 :root {
   --sky-blue: #bfe9ff;
   --yellow: #ffd93b;
@@ -810,6 +838,20 @@ input[type="range"].cartoon-slider::-webkit-slider-thumb {
 }
 
 .voice-duo-chip.selected {
+  background: var(--yellow) !important;
+  border-color: var(--ink) !important;
+  outline: 2px dashed var(--pink);
+}
+
+.voice-mood-pill {
+  font-size: 13px !important;
+  padding: 6px 12px !important;
+  min-height: 40px !important;
+  border-radius: 999px !important;
+  font-weight: 800 !important;
+}
+
+.voice-mood-pill.selected {
   background: var(--yellow) !important;
   border-color: var(--ink) !important;
   outline: 2px dashed var(--pink);

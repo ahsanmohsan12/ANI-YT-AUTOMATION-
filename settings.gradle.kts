@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "ToonTalk Studio"
+rootProject.name = "ANI SHORTS"
 
 include(":app")
