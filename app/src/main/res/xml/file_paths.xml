@@ -3,4 +3,5 @@
     <cache-path name="shared_videos" path="exports/" />
     <files-path name="files_videos" path="exports/" />
     <external-files-path name="external_movies" path="Movies/" />
+    <external-files-path name="external_downloads" path="Download/" />
 </paths>

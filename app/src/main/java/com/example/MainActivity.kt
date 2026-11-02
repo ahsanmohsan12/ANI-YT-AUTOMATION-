@@ -44,6 +44,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.example.ui.theme.CartoonSkyBlue
 import com.example.ui.theme.MyApplicationTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -133,11 +134,50 @@ fun ToonTalkWebViewHost(modifier: Modifier = Modifier) {
     }
   }
 
+  var pendingExportFileForSaveAs by remember { mutableStateOf<java.io.File?>(null) }
+
+  val systemSaveVideoLauncher = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.CreateDocument("video/mp4")
+  ) { targetUri: Uri? ->
+    val srcFile = pendingExportFileForSaveAs
+    pendingExportFileForSaveAs = null
+    if (targetUri != null && srcFile != null && srcFile.exists()) {
+      coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        val copied = runCatching {
+          context.contentResolver.openOutputStream(targetUri)?.use { out ->
+            srcFile.inputStream().use { input -> input.copyTo(out) }
+            out.flush()
+          }
+          true
+        }.getOrDefault(false)
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+          if (copied) {
+            android.widget.Toast.makeText(
+              context,
+              "✅ Video saved to selected folder!",
+              android.widget.Toast.LENGTH_LONG
+            ).show()
+            webViewRef?.evaluateJavascript(
+              "window.__onSystemFileSaved && window.__onSystemFileSaved('${srcFile.name}');",
+              null
+            )
+          }
+        }
+      }
+    }
+  }
+
   val aiBridge = remember(context) {
     ToonTalkAiBridge(
       context = context,
       scope = coroutineScope,
-      webViewProvider = { webViewRef }
+      webViewProvider = { webViewRef },
+      onLaunchSystemSavePicker = { sourceFile, suggestedName ->
+        try {
+          pendingExportFileForSaveAs = sourceFile
+          systemSaveVideoLauncher.launch(suggestedName)
+        } catch (_: Exception) {}
+      }
     )
   }
 
@@ -189,11 +229,18 @@ fun ToonTalkWebViewHost(modifier: Modifier = Modifier) {
 
           setDownloadListener { url, _, _, mimetype, _ ->
             try {
-              val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(Uri.parse(url), mimetype ?: "video/mp4")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+              if (url.startsWith("blob:", ignoreCase = true) || url.startsWith("data:", ignoreCase = true)) {
+                evaluateJavascript(
+                  "window.triggerNativeVideoDownload && window.triggerNativeVideoDownload();",
+                  null
+                )
+              } else {
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                  setDataAndType(Uri.parse(url), mimetype ?: "video/mp4")
+                  addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                ctx.startActivity(intent)
               }
-              ctx.startActivity(intent)
             } catch (_: Exception) {}
           }
 

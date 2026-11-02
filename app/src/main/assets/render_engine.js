@@ -757,26 +757,40 @@
 
     // Choose best supported MIME type (.mp4 preferred, fallback .webm)
     const candidateTypes = [
-      'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
       'video/mp4',
-      'video/webm;codecs=vp9,opus',
+      'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
+      'video/mp4;codecs=avc1',
       'video/webm;codecs=vp8,opus',
-      'video/webm'
+      'video/webm;codecs=vp9,opus',
+      'video/webm',
+      ''
     ];
-    const chosenMimeType = candidateTypes.find((t) => {
-      try {
-        return typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(t);
-      } catch (_) {
-        return false;
-      }
-    }) || '';
-
-    const recorderOptions = chosenMimeType
-      ? { mimeType: chosenMimeType, videoBitsPerSecond: 4500000 }
-      : { videoBitsPerSecond: 4500000 };
 
     const chunks = [];
-    const recorder = new MediaRecorder(combinedStream, recorderOptions);
+    let recorder = null;
+    let chosenMimeType = '';
+
+    for (const candidate of candidateTypes) {
+      try {
+        if (candidate && typeof MediaRecorder.isTypeSupported === 'function' && !MediaRecorder.isTypeSupported(candidate)) {
+          continue;
+        }
+        const opts = candidate
+          ? { mimeType: candidate, videoBitsPerSecond: 4000000 }
+          : { videoBitsPerSecond: 4000000 };
+        recorder = new MediaRecorder(combinedStream, opts);
+        chosenMimeType = candidate || recorder.mimeType || 'video/webm';
+        break;
+      } catch (_) {
+        recorder = null;
+      }
+    }
+
+    if (!recorder) {
+      recorder = new MediaRecorder(combinedStream);
+      chosenMimeType = recorder.mimeType || 'video/webm';
+    }
+
     recorder.ondataavailable = (evt) => {
       if (evt.data && evt.data.size > 0) chunks.push(evt.data);
     };
@@ -790,10 +804,17 @@
       recorder.onerror = (err) => reject(err);
     });
 
-    recorder.start(120);
+    try {
+      recorder.start(150);
+    } catch (_) {
+      recorder = new MediaRecorder(combinedStream);
+      recorder.ondataavailable = (evt) => {
+        if (evt.data && evt.data.size > 0) chunks.push(evt.data);
+      };
+      recorder.start(150);
+    }
 
     const activeVideoElement = videoClone || bgVideoEl;
-    const startWallMs = performance.now();
 
     await new Promise((resolve) => {
       function renderTick() {
@@ -838,8 +859,9 @@
       requestAnimationFrame(renderTick);
     });
 
-    // Stop recorder & cleanup audio nodes
+    // Flush final data & stop recorder
     if (recorder.state !== 'inactive') {
+      try { recorder.requestData(); } catch (_) {}
       recorder.stop();
     }
     const result = await recordingPromise;

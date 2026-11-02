@@ -76,7 +76,7 @@ class ExampleRobolectricTest {
   fun `verify exponential backoff auto retry recovers from transient failures`() {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined)
-    val bridge = ToonTalkAiBridge(context, scope) { null }
+    val bridge = ToonTalkAiBridge(context, scope, webViewProvider = { null })
 
     var attempts = 0
     val result = kotlinx.coroutines.runBlocking {
@@ -99,6 +99,43 @@ class ExampleRobolectricTest {
     assertTrue(bridge.isTransientApiFailure(java.net.SocketTimeoutException("Read timed out")))
     assertTrue(bridge.isTransientApiFailure(IllegalStateException("Gemini API error (429): Rate limit")))
     assertTrue(bridge.isTransientApiFailure(IllegalStateException("Gemini API error (503): Service unavailable")))
+    bridge.shutdown()
+  }
+
+  @Test
+  fun `verify video download persistence creates mp4 in exports and external directories`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined)
+    var pickerLaunchedWithName: String? = null
+    val bridge = ToonTalkAiBridge(
+      context = context,
+      scope = scope,
+      webViewProvider = { null },
+      onLaunchSystemSavePicker = { _, suggestedName ->
+        pickerLaunchedWithName = suggestedName
+      }
+    )
+
+    val dummyVideoBytes = ByteArray(4096) { idx -> (idx % 251).toByte() }
+    val savedLabel = bridge.persistVideoBytesToGalleryAndDownloads(
+      allBytes = dummyVideoBytes,
+      fileName = "AniShorts_TestRender.webm",
+      ext = "webm",
+      isAutoSave = false
+    )
+
+    assertTrue("Saved label should mention AniShorts_TestRender.mp4", savedLabel.contains("AniShorts_TestRender.mp4"))
+    val exportedMp4 = java.io.File(context.cacheDir, "exports/AniShorts_TestRender.mp4")
+    assertTrue("Exported MP4 file must exist in cacheDir/exports", exportedMp4.exists())
+    assertEquals(4096L, exportedMp4.length())
+
+    val html = context.assets.open("index.html").bufferedReader().use { it.readText() }
+    val appJs = context.assets.open("app.js").bufferedReader().use { it.readText() }
+    assertTrue("index.html should contain Download Video button", html.contains("id=\"btn-download-video\""))
+    assertTrue("index.html should contain Save to Files button", html.contains("id=\"btn-save-as-video\""))
+    assertTrue("app.js should contain triggerNativeVideoDownload", appJs.contains("window.triggerNativeVideoDownload"))
+    assertTrue("app.js should contain uploadBlobChunksToNative", appJs.contains("async function uploadBlobChunksToNative("))
+
     bridge.shutdown()
   }
 }

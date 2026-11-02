@@ -841,18 +841,24 @@
             <video id="rendered-output-video" controls playsinline style="width:100%;height:100%;object-fit:contain;background:#000;"></video>
           </div>
 
-          <div id="gallery-save-status" class="badge-tag hidden" style="background:var(--green);align-self:center;font-size:13px;text-align:center;">
-            ✅ Saved to Android Gallery (Movies/AniShorts)
+          <div id="gallery-save-status" class="badge-tag hidden" style="background:var(--green);align-self:center;font-size:13px;text-align:center;line-height:1.35;max-width:100%;word-break:break-word;">
+            ✅ Downloaded to Downloads &amp; Gallery (Movies/AniShorts)
           </div>
 
           <div class="btn-row" style="flex-wrap:wrap;gap:8px;">
-            <button id="btn-download-video" type="button" class="btn-cartoon btn-yellow" style="flex:1;min-width:140px;">
-              💾 Save to Gallery
+            <button id="btn-download-video" type="button" class="btn-cartoon btn-yellow" style="flex:1 1 180px;min-width:160px;font-size:16px;">
+              📥 Download Video (MP4)
             </button>
-            <button id="btn-play-video" type="button" class="btn-cartoon btn-green" style="flex:1;min-width:140px;">
+            <button id="btn-save-as-video" type="button" class="btn-cartoon btn-white" style="flex:1 1 140px;min-width:135px;">
+              📁 Save to Files...
+            </button>
+          </div>
+
+          <div class="btn-row" style="flex-wrap:wrap;gap:8px;">
+            <button id="btn-play-video" type="button" class="btn-cartoon btn-green" style="flex:1;min-width:130px;">
               ▶️ Play Video
             </button>
-            <button id="btn-share-video" type="button" class="btn-cartoon btn-pink" style="flex:1;min-width:100px;">
+            <button id="btn-share-video" type="button" class="btn-cartoon btn-pink" style="flex:1;min-width:110px;">
               📤 Share
             </button>
           </div>

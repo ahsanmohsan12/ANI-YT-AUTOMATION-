@@ -47,7 +47,8 @@ private const val TAG = "ToonTalkAiBridge"
 class ToonTalkAiBridge(
   private val context: Context,
   private val scope: CoroutineScope,
-  private val webViewProvider: () -> WebView?
+  private val webViewProvider: () -> WebView?,
+  private val onLaunchSystemSavePicker: ((File, String) -> Unit)? = null
 ) {
 
   private val okHttpClient by lazy {
@@ -704,34 +705,56 @@ class ToonTalkAiBridge(
     }
   }
 
-  private fun persistVideoBytesToGalleryAndDownloads(
-    allBytes: ByteArray,
-    fileName: String,
-    ext: String,
+  internal fun persistVideoFileToGalleryAndDownloads(
+    sourceFile: File,
+    requestedFileName: String,
     isAutoSave: Boolean
   ): String {
-    val mime = if (ext == "mp4") "video/mp4" else "video/webm"
+    val cleanBase = requestedFileName.substringBeforeLast('.').ifEmpty { "AniShorts_${System.currentTimeMillis()}" }
+    val mp4FileName = "$cleanBase.mp4"
+    val mime = "video/mp4"
 
-    // 1. Always save in app exports cache for instant Play Video & Share (zero-permission guaranteed)
+    // 1. Always ensure file is in app exports cache for instant Play Video, Download & Share (zero-permission guaranteed)
     val exportsDir = File(context.cacheDir, "exports").apply { mkdirs() }
-    val localFile = File(exportsDir, fileName)
-    localFile.writeBytes(allBytes)
-
-    // 2. Also save in app-specific external Movies directory if available
-    runCatching {
-      context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)?.let { extMovies ->
-        extMovies.mkdirs()
-        File(extMovies, fileName).writeBytes(allBytes)
+    val localFile = File(exportsDir, mp4FileName)
+    if (sourceFile.absolutePath != localFile.absolutePath) {
+      sourceFile.copyTo(localFile, overwrite = true)
+    }
+    if (requestedFileName != mp4FileName) {
+      runCatching {
+        val altFile = File(exportsDir, requestedFileName)
+        if (sourceFile.absolutePath != altFile.absolutePath) {
+          localFile.copyTo(altFile, overwrite = true)
+        }
       }
     }
 
-    var savedLocationLabel = "Movies/AniShorts/$fileName"
+    // 2. Also save in app-specific external Movies & Downloads directories
+    val externalPathsToScan = mutableListOf(localFile.absolutePath)
+    runCatching {
+      context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)?.let { extMovies ->
+        extMovies.mkdirs()
+        val f = File(extMovies, mp4FileName)
+        localFile.copyTo(f, overwrite = true)
+        externalPathsToScan.add(f.absolutePath)
+      }
+    }
+    runCatching {
+      context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.let { extDownloads ->
+        extDownloads.mkdirs()
+        val f = File(extDownloads, mp4FileName)
+        localFile.copyTo(f, overwrite = true)
+        externalPathsToScan.add(f.absolutePath)
+      }
+    }
+
+    var savedLocationLabel = "Downloads/$mp4FileName & Movies/AniShorts/$mp4FileName"
     val resolver = context.contentResolver
 
     // 3. Save into public Android Gallery (Movies/AniShorts)
     runCatching {
       val contentValues = ContentValues().apply {
-        put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
+        put(MediaStore.Video.Media.DISPLAY_NAME, mp4FileName)
         put(MediaStore.Video.Media.MIME_TYPE, mime)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
           put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/AniShorts")
@@ -741,7 +764,7 @@ class ToonTalkAiBridge(
       val videoUri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues)
       if (videoUri != null) {
         resolver.openOutputStream(videoUri)?.use { out ->
-          out.write(allBytes)
+          localFile.inputStream().use { input -> input.copyTo(out) }
           out.flush()
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -755,46 +778,66 @@ class ToonTalkAiBridge(
       Log.w(TAG, "Public MediaStore.Video insert fallback: ${e.message}")
     }
 
-    // 4. When user explicitly taps Save/Download, also save to public Downloads/AniShorts on Android 10+
-    if (!isAutoSave && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+    // 4. Save into public Android Downloads folder (MediaStore.Downloads on API 29+, public Downloads dir on API <= 28)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       runCatching {
+        val relativeDir = if (isAutoSave) {
+          Environment.DIRECTORY_DOWNLOADS + "/AniShorts"
+        } else {
+          Environment.DIRECTORY_DOWNLOADS
+        }
         val dlValues = ContentValues().apply {
-          put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+          put(MediaStore.Downloads.DISPLAY_NAME, mp4FileName)
           put(MediaStore.Downloads.MIME_TYPE, mime)
-          put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/AniShorts")
+          put(MediaStore.Downloads.RELATIVE_PATH, relativeDir)
           put(MediaStore.Downloads.IS_PENDING, 1)
         }
         val dlUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, dlValues)
         if (dlUri != null) {
           resolver.openOutputStream(dlUri)?.use { out ->
-            out.write(allBytes)
+            localFile.inputStream().use { input -> input.copyTo(out) }
             out.flush()
           }
           val updateValues = ContentValues().apply {
             put(MediaStore.Downloads.IS_PENDING, 0)
           }
           resolver.update(dlUri, updateValues, null, null)
-          savedLocationLabel = "Movies/AniShorts & Downloads/AniShorts/$fileName"
+          savedLocationLabel = "Downloads/$mp4FileName & Movies/AniShorts/$mp4FileName"
+        }
+      }.onFailure { e ->
+        Log.w(TAG, "Public MediaStore.Downloads insert fallback: ${e.message}")
+      }
+    } else {
+      runCatching {
+        @Suppress("DEPRECATION")
+        val pubDownloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        if (pubDownloads != null) {
+          pubDownloads.mkdirs()
+          val outFile = File(pubDownloads, mp4FileName)
+          localFile.copyTo(outFile, overwrite = true)
+          externalPathsToScan.add(outFile.absolutePath)
         }
       }
     }
 
-    // 5. Scan file into MediaStore so Gallery refreshes immediately
+    // 5. Scan files into MediaStore so Gallery and Files refresh immediately
     runCatching {
       android.media.MediaScannerConnection.scanFile(
         context,
-        arrayOf(localFile.absolutePath),
-        arrayOf(mime),
+        externalPathsToScan.toTypedArray(),
+        Array(externalPathsToScan.size) { mime },
         null
       )
     }
 
+    // 6. When explicitly downloaded by user, show Toast + System Download Notification
     if (!isAutoSave) {
+      postDownloadCompleteNotification(localFile, mp4FileName, savedLocationLabel)
       scope.launch(Dispatchers.Main) {
         runCatching {
           android.widget.Toast.makeText(
             context,
-            "✅ Saved to Gallery: $savedLocationLabel",
+            "✅ Downloaded: $savedLocationLabel",
             android.widget.Toast.LENGTH_LONG
           ).show()
         }
@@ -802,6 +845,70 @@ class ToonTalkAiBridge(
     }
 
     return savedLocationLabel
+  }
+
+  internal fun persistVideoBytesToGalleryAndDownloads(
+    allBytes: ByteArray,
+    fileName: String,
+    ext: String,
+    isAutoSave: Boolean
+  ): String {
+    val exportsDir = File(context.cacheDir, "exports").apply { mkdirs() }
+    val tempSource = File(exportsDir, fileName)
+    tempSource.writeBytes(allBytes)
+    return persistVideoFileToGalleryAndDownloads(tempSource, fileName, isAutoSave)
+  }
+
+  private fun postDownloadCompleteNotification(videoFile: File, displayFileName: String, savedLocationLabel: String) {
+    runCatching {
+      val notificationManager =
+        context.getSystemService(Context.NOTIFICATION_SERVICE) as? android.app.NotificationManager ?: return
+      val channelId = "anishorts_downloads"
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val channel = android.app.NotificationChannel(
+          channelId,
+          "ANI SHORTS Video Downloads",
+          android.app.NotificationManager.IMPORTANCE_DEFAULT
+        ).apply {
+          description = "Notifications for completed 9:16 video downloads"
+        }
+        notificationManager.createNotificationChannel(channel)
+      }
+
+      val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", videoFile)
+      val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, "video/mp4")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+      }
+      val pendingFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+      } else {
+        android.app.PendingIntent.FLAG_UPDATE_CURRENT
+      }
+      val pendingIntent = android.app.PendingIntent.getActivity(
+        context,
+        displayFileName.hashCode(),
+        viewIntent,
+        pendingFlags
+      )
+
+      val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        android.app.Notification.Builder(context, channelId)
+      } else {
+        @Suppress("DEPRECATION")
+        android.app.Notification.Builder(context)
+      }
+
+      val notification = builder
+        .setSmallIcon(android.R.drawable.stat_sys_download_done)
+        .setContentTitle("Download Complete • $displayFileName")
+        .setContentText("Saved to $savedLocationLabel (Tap to play)")
+        .setContentIntent(pendingIntent)
+        .setAutoCancel(true)
+        .build()
+
+      notificationManager.notify(displayFileName.hashCode(), notification)
+    }
   }
 
   @JavascriptInterface
@@ -813,24 +920,26 @@ class ToonTalkAiBridge(
         val chunkIndex = req.getInt("chunkIndex")
         val totalChunks = req.getInt("totalChunks")
         val chunkBase64 = req.getString("chunkBase64")
-        val mimeType = req.optString("mimeType", "video/mp4")
         val isAutoSave = req.optBoolean("isAutoSave", false)
-        val ext = if (mimeType.contains("mp4", ignoreCase = true)) "mp4" else "webm"
 
         val tempFile = activeChunkTransfers.getOrPut(transferId) {
           File(context.cacheDir, "transfer_${System.currentTimeMillis()}_$transferId.part")
         }
 
         val chunkBytes = Base64.decode(chunkBase64, Base64.DEFAULT)
-        tempFile.appendBytes(chunkBytes)
+        java.io.FileOutputStream(tempFile, true).use { fos ->
+          fos.write(chunkBytes)
+        }
 
-        if (chunkIndex == totalChunks - 1) {
+        if (chunkIndex >= totalChunks - 1) {
           activeChunkTransfers.remove(transferId)
-          val fileName = "AniShorts_${System.currentTimeMillis()}.$ext"
-          val allBytes = tempFile.readBytes()
+          val fileName = "AniShorts_${System.currentTimeMillis()}.mp4"
+          val exportsDir = File(context.cacheDir, "exports").apply { mkdirs() }
+          val finalFile = File(exportsDir, fileName)
+          tempFile.copyTo(finalFile, overwrite = true)
           tempFile.delete()
 
-          val savedPath = persistVideoBytesToGalleryAndDownloads(allBytes, fileName, ext, isAutoSave)
+          val savedPath = persistVideoFileToGalleryAndDownloads(finalFile, fileName, isAutoSave)
 
           sendCallbackToJs(
             callbackId,
@@ -848,11 +957,73 @@ class ToonTalkAiBridge(
               .put("total", totalChunks)
           )
         }
-      } catch (e: Exception) {
-        Log.e(TAG, "Chunk saving error", e)
+      } catch (t: Throwable) {
+        Log.e(TAG, "Chunk saving error", t)
         sendCallbackToJs(
           callbackId,
-          JSONObject().put("ok", false).put("error", e.localizedMessage ?: "Failed to save video chunk.")
+          JSONObject().put("ok", false).put("error", t.localizedMessage ?: "Failed to save video chunk.")
+        )
+      }
+    }
+  }
+
+  @JavascriptInterface
+  fun downloadSavedVideo(callbackId: String, payloadJson: String) {
+    scope.launch(Dispatchers.IO) {
+      try {
+        val req = JSONObject(payloadJson)
+        val requestedName = req.optString("fileName", "")
+        val openSystemPicker = req.optBoolean("openSystemPicker", false)
+        val exportsDir = File(context.cacheDir, "exports").apply { mkdirs() }
+
+        val targetFile = if (requestedName.isNotEmpty() && File(exportsDir, requestedName).exists()) {
+          File(exportsDir, requestedName)
+        } else {
+          exportsDir.listFiles()
+            ?.filter { it.isFile && it.length() > 0 && it.extension.lowercase(Locale.ROOT) in listOf("mp4", "webm") }
+            ?.maxByOrNull { it.lastModified() }
+        }
+
+        if (targetFile != null && targetFile.exists() && targetFile.length() > 0L) {
+          val mp4Name = if (targetFile.name.endsWith(".mp4", ignoreCase = true)) {
+            targetFile.name
+          } else {
+            targetFile.nameWithoutExtension + ".mp4"
+          }
+          val savedPath = persistVideoFileToGalleryAndDownloads(
+            sourceFile = targetFile,
+            requestedFileName = mp4Name,
+            isAutoSave = false
+          )
+
+          if (openSystemPicker && onLaunchSystemSavePicker != null) {
+            val fileForPicker = File(exportsDir, mp4Name).takeIf { it.exists() } ?: targetFile
+            withContext(Dispatchers.Main) {
+              onLaunchSystemSavePicker.invoke(fileForPicker, mp4Name)
+            }
+          }
+
+          sendCallbackToJs(
+            callbackId,
+            JSONObject()
+              .put("ok", true)
+              .put("fileName", mp4Name)
+              .put("savedPath", savedPath)
+          )
+        } else {
+          sendCallbackToJs(
+            callbackId,
+            JSONObject()
+              .put("ok", false)
+              .put("needUpload", true)
+              .put("error", "Cached export not found; uploading fresh video stream.")
+          )
+        }
+      } catch (t: Throwable) {
+        Log.e(TAG, "Failed in downloadSavedVideo", t)
+        sendCallbackToJs(
+          callbackId,
+          JSONObject().put("ok", false).put("error", t.localizedMessage ?: "Download failed.")
         )
       }
     }
@@ -865,7 +1036,7 @@ class ToonTalkAiBridge(
         val req = JSONObject(payloadJson)
         val fileName = req.optString("fileName", "")
         val exportsDir = File(context.cacheDir, "exports")
-        val targetFile = if (fileName.isNotEmpty()) {
+        val targetFile = if (fileName.isNotEmpty() && File(exportsDir, fileName).exists()) {
           File(exportsDir, fileName)
         } else {
           exportsDir.listFiles()?.filter { it.extension in listOf("mp4", "webm") }?.maxByOrNull { it.lastModified() }
@@ -874,7 +1045,7 @@ class ToonTalkAiBridge(
         if (targetFile != null && targetFile.exists()) {
           val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", targetFile)
           val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, if (targetFile.extension == "mp4") "video/mp4" else "video/webm")
+            setDataAndType(uri, "video/mp4")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
           }
           context.startActivity(intent)
@@ -895,13 +1066,11 @@ class ToonTalkAiBridge(
       try {
         val req = JSONObject(payloadJson)
         val base64Data = req.getString("base64Data")
-        val mimeType = req.optString("mimeType", "video/mp4")
         val isAutoSave = req.optBoolean("isAutoSave", false)
-        val ext = if (mimeType.contains("mp4", ignoreCase = true)) "mp4" else "webm"
-        val fileName = "AniShorts_${System.currentTimeMillis()}.$ext"
+        val fileName = "AniShorts_${System.currentTimeMillis()}.mp4"
         val bytes = Base64.decode(base64Data, Base64.DEFAULT)
 
-        val savedPath = persistVideoBytesToGalleryAndDownloads(bytes, fileName, ext, isAutoSave)
+        val savedPath = persistVideoBytesToGalleryAndDownloads(bytes, fileName, "mp4", isAutoSave)
 
         sendCallbackToJs(
           callbackId,
@@ -910,13 +1079,13 @@ class ToonTalkAiBridge(
             .put("fileName", fileName)
             .put("savedPath", savedPath)
         )
-      } catch (e: Exception) {
-        Log.e(TAG, "Failed to save video to Gallery", e)
+      } catch (t: Throwable) {
+        Log.e(TAG, "Failed to save video to Gallery", t)
         sendCallbackToJs(
           callbackId,
           JSONObject()
             .put("ok", false)
-            .put("error", e.localizedMessage ?: "Could not save video to Gallery.")
+            .put("error", t.localizedMessage ?: "Could not save video to Gallery.")
         )
       }
     }
@@ -927,15 +1096,26 @@ class ToonTalkAiBridge(
     scope.launch(Dispatchers.IO) {
       try {
         val req = JSONObject(payloadJson)
-        val base64Data = req.getString("base64Data")
-        val mimeType = req.optString("mimeType", "video/mp4")
-        val ext = if (mimeType.contains("mp4", ignoreCase = true)) "mp4" else "webm"
-        val fileName = "AniShorts_Share_${System.currentTimeMillis()}.$ext"
-        val bytes = Base64.decode(base64Data, Base64.DEFAULT)
-
+        val requestedFileName = req.optString("fileName", "")
+        val base64Data = req.optString("base64Data", "")
         val exportsDir = File(context.cacheDir, "exports").apply { mkdirs() }
-        val shareFile = File(exportsDir, fileName)
-        shareFile.writeBytes(bytes)
+
+        val shareFile: File = when {
+          requestedFileName.isNotEmpty() && File(exportsDir, requestedFileName).exists() -> {
+            File(exportsDir, requestedFileName)
+          }
+          base64Data.isNotEmpty() -> {
+            val f = File(exportsDir, "AniShorts_Share_${System.currentTimeMillis()}.mp4")
+            f.writeBytes(Base64.decode(base64Data, Base64.DEFAULT))
+            f
+          }
+          else -> {
+            exportsDir.listFiles()
+              ?.filter { it.isFile && it.length() > 0 && it.extension.lowercase(Locale.ROOT) in listOf("mp4", "webm") }
+              ?.maxByOrNull { it.lastModified() }
+              ?: throw IllegalStateException("No rendered video file available to share.")
+          }
+        }
 
         val contentUri = FileProvider.getUriForFile(
           context,
@@ -945,7 +1125,7 @@ class ToonTalkAiBridge(
 
         withContext(Dispatchers.Main) {
           val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = if (ext == "mp4") "video/mp4" else "video/webm"
+            type = "video/mp4"
             putExtra(Intent.EXTRA_STREAM, contentUri)
             putExtra(Intent.EXTRA_TEXT, "Made with ANI SHORTS 🎬✨")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -957,11 +1137,11 @@ class ToonTalkAiBridge(
         }
 
         sendCallbackToJs(callbackId, JSONObject().put("ok", true))
-      } catch (e: Exception) {
-        Log.e(TAG, "Failed to share video", e)
+      } catch (t: Throwable) {
+        Log.e(TAG, "Failed to share video", t)
         sendCallbackToJs(
           callbackId,
-          JSONObject().put("ok", false).put("error", e.localizedMessage ?: "Share failed.")
+          JSONObject().put("ok", false).put("error", t.localizedMessage ?: "Share failed.")
         )
       }
     }

@@ -1840,23 +1840,23 @@
 
       lastRenderedBlob = blob;
       lastRenderedMimeType = mimeType || 'video/webm';
+      lastSavedNativeFileName = null;
+      activeNativeSavePromise = null;
       if (lastRenderedUrl) {
         URL.revokeObjectURL(lastRenderedUrl);
       }
       lastRenderedUrl = URL.createObjectURL(blob);
 
-      const ext = (lastRenderedMimeType || '').includes('mp4') ? 'mp4' : 'webm';
-      const defaultFileName = `ToonTalk_${Date.now()}.${ext}`;
+      const defaultFileName = `AniShorts_${Date.now()}.mp4`;
 
       const outputVideo = document.getElementById('rendered-output-video');
       outputVideo.src = lastRenderedUrl;
       outputVideo.load();
 
-      // Configure direct download button anchor immediately
+      // Configure direct download button metadata
       const dlBtn = document.getElementById('btn-download-video');
       if (dlBtn) {
-        dlBtn.href = lastRenderedUrl;
-        dlBtn.download = defaultFileName;
+        dlBtn.setAttribute('data-filename', defaultFileName);
       }
 
       progressSection.classList.add('hidden');
@@ -1866,8 +1866,8 @@
       window.StarterAssets.playCelebrationSound();
       window.StarterAssets.launchConfetti();
 
-      // Automatically save to Android Gallery (Movies/ToonTalk) in background
-      saveBlobToAndroidGallery(blob, lastRenderedMimeType, true).catch(() => {});
+      // Automatically transfer & save to Android Downloads + Gallery (Movies/AniShorts) in background
+      saveBlobToAndroidGallery(blob, lastRenderedMimeType, true, false).catch(() => {});
     } catch (err) {
       createBtn.disabled = false;
       progressSection.classList.add('hidden');
@@ -1877,6 +1877,9 @@
       );
     }
   }
+
+  let lastSavedNativeFileName = null;
+  let activeNativeSavePromise = null;
 
   function blobToBase64(blob) {
     return new Promise((resolve, reject) => {
@@ -1891,59 +1894,159 @@
     });
   }
 
-  async function saveBlobToAndroidGallery(blob, mimeType, isAutoSave = false) {
-    if (!blob) return false;
-    const ext = (mimeType || '').toLowerCase().includes('mp4') ? 'mp4' : 'webm';
-    const fileName = `AniShorts_${Date.now()}.${ext}`;
+  async function uploadBlobChunksToNative(blob, mimeType, isAutoSave, onChunkProgress) {
+    // 192 KB binary slice (196,608 bytes is divisible by 3 -> clean Base64 chunks with no mid-stream '=' padding)
+    const BYTE_CHUNK_SIZE = 192 * 1024;
+    const totalChunks = Math.max(1, Math.ceil(blob.size / BYTE_CHUNK_SIZE));
+    const transferId = 'tx_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
 
+    let finalRes = null;
+    if (typeof window.AndroidBridge.saveVideoChunk === 'function') {
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * BYTE_CHUNK_SIZE;
+        const end = Math.min(blob.size, start + BYTE_CHUNK_SIZE);
+        const chunkBlob = blob.slice(start, end);
+        const chunkBase64 = await blobToBase64(chunkBlob);
+        finalRes = await callNativeBridge('saveVideoChunk', {
+          transferId,
+          chunkIndex: i,
+          totalChunks,
+          chunkBase64,
+          mimeType,
+          isAutoSave
+        }, 45000);
+        if (!finalRes || !finalRes.ok) {
+          throw new Error((finalRes && finalRes.error) || `Chunk ${i + 1}/${totalChunks} transfer failed`);
+        }
+        if (onChunkProgress) {
+          onChunkProgress(Math.round(((i + 1) / totalChunks) * 100));
+        }
+      }
+    } else if (typeof window.AndroidBridge.saveVideoToGallery === 'function') {
+      const base64Data = await blobToBase64(blob);
+      finalRes = await callNativeBridge('saveVideoToGallery', {
+        base64Data,
+        mimeType,
+        isAutoSave
+      }, 45000);
+    }
+    if (finalRes && finalRes.ok && finalRes.fileName) {
+      lastSavedNativeFileName = finalRes.fileName;
+    }
+    return finalRes;
+  }
+
+  async function saveBlobToAndroidGallery(blob, mimeType, isAutoSave = false, openSystemPicker = false) {
+    if (!blob || blob.size === 0) {
+      if (!isAutoSave) {
+        await handleCreateFullVideo();
+      }
+      return false;
+    }
+
+    const fileName = `AniShorts_${Date.now()}.mp4`;
     const badge = document.getElementById('gallery-save-status');
-    if (!isAutoSave && badge) {
-      badge.textContent = '⏳ Saving video to Gallery (Movies/AniShorts)...';
-      badge.classList.remove('hidden');
+    const dlBtn = document.getElementById('btn-download-video');
+    const saveAsBtn = document.getElementById('btn-save-as-video');
+
+    if (!isAutoSave) {
+      if (badge) {
+        badge.textContent = openSystemPicker
+          ? '⏳ Preparing video for System File Saver...'
+          : '⏳ Downloading video to Downloads & Gallery...';
+        badge.style.background = 'var(--yellow)';
+        badge.classList.remove('hidden');
+      }
+      if (dlBtn && !openSystemPicker) {
+        dlBtn.disabled = true;
+        dlBtn.textContent = '⏳ Downloading...';
+      }
+      if (saveAsBtn && openSystemPicker) {
+        saveAsBtn.disabled = true;
+        saveAsBtn.textContent = '⏳ Opening Files...';
+      }
     }
 
     try {
       if (window.AndroidBridge) {
-        const base64Data = await blobToBase64(blob);
-        const CHUNK_SIZE = 256 * 1024;
-        const totalChunks = Math.ceil(base64Data.length / CHUNK_SIZE);
-        const transferId = 'tx_' + Date.now();
-
-        let finalRes = null;
-        if (typeof window.AndroidBridge.saveVideoChunk === 'function' && totalChunks > 1) {
-          for (let i = 0; i < totalChunks; i++) {
-            const chunk = base64Data.slice(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
-            finalRes = await callNativeBridge('saveVideoChunk', {
-              transferId,
-              chunkIndex: i,
-              totalChunks,
-              chunkBase64: chunk,
-              mimeType,
-              isAutoSave
-            }, 30000);
-          }
-        } else if (typeof window.AndroidBridge.saveVideoToGallery === 'function') {
-          finalRes = await callNativeBridge('saveVideoToGallery', {
-            base64Data,
-            mimeType,
-            isAutoSave
-          }, 30000);
+        // 1. If an auto-save upload is currently in flight, wait for it instead of uploading a duplicate stream
+        if (activeNativeSavePromise) {
+          try {
+            await activeNativeSavePromise;
+          } catch (_) {}
         }
 
+        // 2. If already uploaded to native cache, trigger instant native download/export
+        if (lastSavedNativeFileName && typeof window.AndroidBridge.downloadSavedVideo === 'function') {
+          const fastRes = await callNativeBridge('downloadSavedVideo', {
+            fileName: lastSavedNativeFileName,
+            openSystemPicker: Boolean(openSystemPicker)
+          }, 30000);
+          if (fastRes && fastRes.ok) {
+            if (badge) {
+              badge.style.background = 'var(--green)';
+              badge.textContent = openSystemPicker
+                ? `📁 Choose where to save ${fastRes.fileName || fileName} (also saved in ${fastRes.savedPath || 'Downloads & Movies/AniShorts'})`
+                : `✅ Downloaded! Saved to ${fastRes.savedPath || 'Downloads & Movies/AniShorts'}`;
+              badge.classList.remove('hidden');
+            }
+            return true;
+          }
+        }
+
+        // 3. Otherwise upload chunks to native cache and save to Gallery & Downloads
+        const uploadTask = uploadBlobChunksToNative(
+          blob,
+          mimeType,
+          isAutoSave,
+          (pct) => {
+            if (!isAutoSave && badge) {
+              badge.textContent = `⏳ Downloading video... ${pct}%`;
+            }
+          }
+        );
+        activeNativeSavePromise = uploadTask;
+        const finalRes = await uploadTask;
+        activeNativeSavePromise = null;
+
         if (finalRes && finalRes.ok) {
+          if (openSystemPicker && typeof window.AndroidBridge.downloadSavedVideo === 'function') {
+            await callNativeBridge('downloadSavedVideo', {
+              fileName: finalRes.fileName || lastSavedNativeFileName || '',
+              openSystemPicker: true
+            }, 30000);
+          }
           if (badge) {
-            badge.textContent = `✅ Saved to Android Gallery (${finalRes.savedPath || 'Movies/AniShorts'})`;
+            badge.style.background = 'var(--green)';
+            badge.textContent = `✅ Downloaded! Saved to ${finalRes.savedPath || 'Downloads & Movies/AniShorts'}`;
             badge.classList.remove('hidden');
           }
           return true;
         }
       }
     } catch (err) {
+      activeNativeSavePromise = null;
       console.warn('Bridge save video error', err);
+      if (!isAutoSave && badge) {
+        badge.style.background = '#ff9a5c';
+        badge.textContent = `⚠️ Native save warning: ${err.message || 'Retrying browser download...'}`;
+        badge.classList.remove('hidden');
+      }
+    } finally {
+      if (!isAutoSave) {
+        if (dlBtn) {
+          dlBtn.disabled = false;
+          dlBtn.textContent = '📥 Download Video (MP4)';
+        }
+        if (saveAsBtn) {
+          saveAsBtn.disabled = false;
+          saveAsBtn.textContent = '📁 Save to Files...';
+        }
+      }
     }
 
-    // Direct browser fallback download
-    if (!isAutoSave && lastRenderedUrl) {
+    // Direct browser fallback download (only when not inside AndroidBridge WebView)
+    if (!isAutoSave && lastRenderedUrl && !window.AndroidBridge) {
       const a = document.createElement('a');
       a.href = lastRenderedUrl;
       a.download = fileName;
@@ -1952,6 +2055,7 @@
       setTimeout(() => document.body.removeChild(a), 150);
 
       if (badge) {
+        badge.style.background = 'var(--green)';
         badge.textContent = `✅ Download Started: ${fileName}`;
         badge.classList.remove('hidden');
       }
@@ -1960,18 +2064,41 @@
     return false;
   }
 
+  // Global hook for WebView DownloadListener (e.g., when user clicks 3-dot Download inside <video controls>)
+  window.triggerNativeVideoDownload = function () {
+    if (lastRenderedBlob) {
+      saveBlobToAndroidGallery(lastRenderedBlob, lastRenderedMimeType, false, false);
+    }
+  };
+
+  window.__onSystemFileSaved = function (savedUriLabel) {
+    const badge = document.getElementById('gallery-save-status');
+    if (badge) {
+      badge.style.background = 'var(--green)';
+      badge.textContent = `✅ Video saved to selected folder! (${savedUriLabel || 'AniShorts.mp4'})`;
+      badge.classList.remove('hidden');
+    }
+  };
+
   async function shareRenderedVideo() {
     if (!lastRenderedBlob) return;
     window.StarterAssets.playPopSound(1.1);
     try {
-      const base64Data = await blobToBase64(lastRenderedBlob);
-      const res = await callNativeBridge('shareVideo', {
-        base64Data,
-        mimeType: lastRenderedMimeType
-      }, 20000);
-      if (res && res.noBridge && navigator.share) {
-        const ext = lastRenderedMimeType.includes('mp4') ? 'mp4' : 'webm';
-        const file = new File([lastRenderedBlob], `AniShorts.${ext}`, { type: lastRenderedMimeType });
+      if (window.AndroidBridge) {
+        if (activeNativeSavePromise) {
+          try { await activeNativeSavePromise; } catch (_) {}
+        }
+        if (!lastSavedNativeFileName) {
+          await saveBlobToAndroidGallery(lastRenderedBlob, lastRenderedMimeType, true, false);
+        }
+        const res = await callNativeBridge('shareVideo', {
+          fileName: lastSavedNativeFileName || '',
+          mimeType: lastRenderedMimeType
+        }, 25000);
+        if (res && res.ok) return;
+      }
+      if (navigator.share) {
+        const file = new File([lastRenderedBlob], 'AniShorts.mp4', { type: 'video/mp4' });
         await navigator.share({
           title: 'ANI SHORTS 9:16 Video',
           files: [file]
@@ -2623,10 +2750,20 @@
       handleCreateFullVideo();
     });
 
-    document.getElementById('btn-download-video').addEventListener('click', () => {
+    document.getElementById('btn-download-video').addEventListener('click', (e) => {
+      e.preventDefault();
       window.StarterAssets.playPopSound(1.15);
-      saveBlobToAndroidGallery(lastRenderedBlob, lastRenderedMimeType, false);
+      saveBlobToAndroidGallery(lastRenderedBlob, lastRenderedMimeType, false, false);
     });
+
+    const saveAsBtn = document.getElementById('btn-save-as-video');
+    if (saveAsBtn) {
+      saveAsBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.StarterAssets.playPopSound(1.15);
+        saveBlobToAndroidGallery(lastRenderedBlob, lastRenderedMimeType, false, true);
+      });
+    }
 
     const playBtn = document.getElementById('btn-play-video');
     if (playBtn) {
