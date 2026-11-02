@@ -141,12 +141,13 @@
   }
 
   // Draw Character A (Left) and Character B (Right) around vertical middle (50% default)
-  function drawCharactersLayer(ctx, charAImg, charBImg, activeSeg, settings, timeInSegSec, loudness) {
+  function drawCharactersLayer(ctx, charAImg, charBImg, activeSeg, settings, timeInSegSec, loudness, currentTimeSec = 0) {
     const baseWidthRatio = 0.40 * ((Number(settings.charSize) || 100) / 100);
     const charW = FRAME_W * baseWidthRatio;
     const centerY = FRAME_H * ((Number(settings.charVerticalPos) || 50) / 100);
     const edgeOffsetPx = FRAME_W * ((Number(settings.charEdgeDist) ?? 4) / 100);
     const silentMode = settings.silentMode || 'hide';
+    const swayEnabled = settings.charSway !== false;
     const slideDur = 0.25;
 
     const activeSpeaker = activeSeg ? activeSeg.speaker : 'A';
@@ -195,16 +196,26 @@
         alpha = 0.45;
       }
 
-      const drawW = w * popScale;
-      const drawH = h * popScale;
-      const drawCenterX = currentX + w / 2;
+      // Gentle looping idle sway animation
+      const phaseOffset = side === 'A' ? 0 : Math.PI * 0.75;
+      const swayX = swayEnabled ? Math.sin(currentTimeSec * 2.2 + phaseOffset) * 10 : 0;
+      const swayY = swayEnabled ? Math.cos(currentTimeSec * 3.1 + phaseOffset) * 12 : 0;
+      const swayAngle = swayEnabled ? Math.sin(currentTimeSec * 2.2 + phaseOffset) * 0.035 : 0;
+      const idleBreathScale = swayEnabled ? (1.0 + Math.sin(currentTimeSec * 2.8 + phaseOffset) * 0.018) : 1.0;
+
+      const drawW = w * popScale * idleBreathScale;
+      const drawH = h * popScale * idleBreathScale;
+      const drawCenterX = currentX + w / 2 + swayX;
       const bounceOffsetY = isSpeaking ? (-loudness * 22) : 0;
-      const drawX = drawCenterX - drawW / 2;
-      const drawY = centerY - drawH / 2 + bounceOffsetY;
+      const drawCenterY = centerY + bounceOffsetY + swayY;
 
       ctx.save();
       ctx.globalAlpha = alpha;
-      ctx.drawImage(img, drawX, drawY, drawW, drawH);
+      ctx.translate(drawCenterX, drawCenterY);
+      if (swayAngle !== 0) {
+        ctx.rotate(swayAngle);
+      }
+      ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
       ctx.restore();
     }
 
@@ -617,7 +628,7 @@
     const effectiveLoudness = isInsideActiveWindow ? liveLoudness : 0;
 
     // 3. Characters
-    drawCharactersLayer(ctx, charAImg, charBImg, activeSeg, settings, timeInSegSec, effectiveLoudness);
+    drawCharactersLayer(ctx, charAImg, charBImg, activeSeg, settings, timeInSegSec, effectiveLoudness, currentTimeSec);
 
     // 4. Captions
     if (isInsideActiveWindow && activeSeg) {

@@ -7,6 +7,7 @@
   const OPENAI_KEY_STORAGE = 'ani_shorts_openai_key';
   const KOKORO_KEY_STORAGE = 'ani_shorts_kokoro_key';
   const KOKORO_URL_STORAGE = 'ani_shorts_kokoro_url';
+  const HF_KEY_STORAGE = 'ani_shorts_hf_key';
 
   // Cached kokoro-js ONNX instance
   let kokoroTtsInstance = null;
@@ -59,6 +60,43 @@
 
   // Voice Catalogs for all providers
   const VOICE_CATALOGS = {
+    audio8: [
+      {
+        group: '🎧 Edge0/Audio8-TTS-Realistic-0.6b (44.1kHz Ultra-Realistic Female)',
+        voices: [
+          { id: 'af_heart', label: 'Audio8 Heart — Warm Realistic Studio Female ⭐' },
+          { id: 'af_bella', label: 'Audio8 Bella — Expressive Viral Creator Female ⭐' },
+          { id: 'af_nova', label: 'Audio8 Nova — Snappy Shorts Narrator Female' },
+          { id: 'af_nicole', label: 'Audio8 Nicole — Smooth Chill ASMR Female' },
+          { id: 'af_sarah', label: 'Audio8 Sarah — Confident Clear Storyteller Female' },
+          { id: 'af_sky', label: 'Audio8 Sky — Upbeat Energetic Young Female' },
+          { id: 'af_kore', label: 'Audio8 Kore — Bright Anime & Gaming Female' },
+          { id: 'bf_emma', label: 'Audio8 Emma — Refined British Studio Female' }
+        ]
+      },
+      {
+        group: '🎧 Edge0/Audio8-TTS-Realistic-0.6b (44.1kHz Ultra-Realistic Male)',
+        voices: [
+          { id: 'am_michael', label: 'Audio8 Michael — Natural YouTuber Creator Male ⭐' },
+          { id: 'am_adam', label: 'Audio8 Adam — Deep Viral Documentary Male ⭐' },
+          { id: 'am_fenrir', label: 'Audio8 Fenrir — High-Energy Hype & Gamer Male' },
+          { id: 'am_puck', label: 'Audio8 Puck — Playful Witty Sidekick Male' },
+          { id: 'am_echo', label: 'Audio8 Echo — Warm Smooth Podcaster Male' },
+          { id: 'am_onyx', label: 'Audio8 Onyx — Ultra-Deep Movie Trailer Male' },
+          { id: 'bm_george', label: 'Audio8 George — Classic British Narrator Male' },
+          { id: 'bm_daniel', label: 'Audio8 Daniel — Deep UK Studio Male' }
+        ]
+      },
+      {
+        group: '🇮🇳 Edge0/Audio8-TTS-Realistic-0.6b (Hindi / Urdu / Hinglish)',
+        voices: [
+          { id: 'hf_alpha', label: 'Audio8 Alpha — Natural Hindi / Desi Female ⭐' },
+          { id: 'hf_beta', label: 'Audio8 Beta — Expressive Desi Vlogger Female' },
+          { id: 'hm_omega', label: 'Audio8 Omega — Deep Hindi / Urdu Creator Male ⭐' },
+          { id: 'hm_psi', label: 'Audio8 Psi — Energetic Hinglish / Urdu Male' }
+        ]
+      }
+    ],
     kokoro: [
       {
         group: '🇺🇸 Kokoro-82M American Female (hexgrad/kokoro)',
@@ -216,7 +254,7 @@
     customStyle: '',
     language: 'English',
     lengthSec: 30,
-    voiceProvider: 'kokoro',
+    voiceProvider: 'audio8',
     voiceA: 'am_michael',
     voiceB: 'af_heart',
     customVoiceIdA: '',
@@ -232,6 +270,7 @@
     bgTrimMode: 'zero',
     bgVolume: 10,
     silentMode: 'hide',
+    charSway: true,
     charSize: 100,
     charVerticalPos: 50,
     charEdgeDist: 4,
@@ -417,12 +456,26 @@
     } catch (_) {}
   }
 
+  function getHfApiKey() {
+    try {
+      return localStorage.getItem(HF_KEY_STORAGE) || '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function setHfApiKey(key) {
+    try {
+      localStorage.setItem(HF_KEY_STORAGE, (key || '').trim());
+    } catch (_) {}
+  }
+
   function populateVoiceSelects(provider) {
     const selA = document.getElementById('select-voice-a');
     const selB = document.getElementById('select-voice-b');
     if (!selA || !selB) return;
 
-    const catalog = VOICE_CATALOGS[provider] || VOICE_CATALOGS.kokoro;
+    const catalog = VOICE_CATALOGS[provider] || VOICE_CATALOGS.audio8 || VOICE_CATALOGS.kokoro;
     let html = '';
     const validVoiceIds = new Set();
 
@@ -447,13 +500,13 @@
 
     // Pick reasonable defaults if the active voice is not in this provider
     if (!validVoiceIds.has(settings.voiceA)) {
-      if (provider === 'kokoro') settings.voiceA = 'am_michael';
+      if (provider === 'audio8' || provider === 'kokoro') settings.voiceA = 'am_michael';
       else if (provider === 'elevenlabs') settings.voiceA = 'Adam';
       else if (provider === 'openai') settings.voiceA = 'echo';
       else settings.voiceA = 'Alex';
     }
     if (!validVoiceIds.has(settings.voiceB)) {
-      if (provider === 'kokoro') settings.voiceB = 'af_heart';
+      if (provider === 'audio8' || provider === 'kokoro') settings.voiceB = 'af_heart';
       else if (provider === 'elevenlabs') settings.voiceB = 'Rachel';
       else if (provider === 'openai') settings.voiceB = 'nova';
       else settings.voiceB = 'Emma';
@@ -472,6 +525,24 @@
     const status = document.getElementById('provider-key-status');
     const customBox = document.getElementById('elevenlabs-custom-ids-box');
     const kokoroBanner = document.getElementById('kokoro-engine-banner');
+    const audio8Banner = document.getElementById('audio8-engine-banner');
+
+    if (audio8Banner) {
+      if (provider === 'audio8') {
+        audio8Banner.classList.remove('hidden');
+        const hfInp = document.getElementById('input-inline-hf-key');
+        const a8Status = document.getElementById('audio8-engine-status');
+        const hfKey = getHfApiKey();
+        if (hfInp) hfInp.value = hfKey;
+        if (a8Status) {
+          a8Status.textContent = hfKey
+            ? '🎧 Edge0/Audio8-TTS-Realistic-0.6b Active (HF Token Connected • 44.1kHz DualAR TTS)'
+            : '🎧 Edge0/Audio8-TTS-Realistic-0.6b Active (Paste Hugging Face hf_... Token or set HUGGINGFACE_API_KEY in AI Studio Secrets)';
+        }
+      } else {
+        audio8Banner.classList.add('hidden');
+      }
+    }
 
     if (kokoroBanner) {
       if (provider === 'kokoro') {
@@ -499,7 +570,7 @@
 
     if (!banner) return;
 
-    if (provider === 'builtin' || provider === 'kokoro') {
+    if (provider === 'builtin' || provider === 'kokoro' || provider === 'audio8') {
       banner.classList.add('hidden');
       if (customBox) customBox.classList.add('hidden');
       return;
@@ -646,7 +717,7 @@
     });
 
     // Voice Engine Provider & Selects
-    const provider = settings.voiceProvider || 'builtin';
+    const provider = settings.voiceProvider || 'audio8';
     document.querySelectorAll('.voice-provider-pill').forEach((btn) => {
       const match = btn.getAttribute('data-provider') === provider;
       btn.classList.toggle('btn-yellow', match);
@@ -699,6 +770,12 @@
     document.getElementById('val-bg-volume').textContent = settings.bgVolume + '%';
 
     // Characters
+    const swayBtn = document.getElementById('btn-toggle-char-sway');
+    if (swayBtn) {
+      const swayOn = settings.charSway !== false;
+      swayBtn.textContent = swayOn ? 'Character Sway: ON ✅' : 'Character Sway: OFF ❌';
+      swayBtn.className = 'btn-cartoon btn-sm ' + (swayOn ? 'btn-green' : 'btn-pink');
+    }
     document.querySelectorAll('#silent-mode-pills .pill-choice').forEach((btn) => {
       btn.classList.toggle('selected', btn.getAttribute('data-silent') === settings.silentMode);
     });
@@ -1163,12 +1240,13 @@
 
   async function synthesizeBufferForText(text, voiceName, pitch = 1.0, speed = 1.0, speaker = 'A') {
     const audioCtx = getSharedAudioCtx();
-    const provider = settings.voiceProvider || 'kokoro';
+    const provider = settings.voiceProvider || 'audio8';
     const customVoiceId = (speaker === 'B') ? (settings.customVoiceIdB || '') : (settings.customVoiceIdA || '');
     const elevenLabsApiKey = getElevenLabsApiKey();
     const openAiApiKey = getOpenAiApiKey();
     const kokoroApiKey = getKokoroApiKey();
     const kokoroApiUrl = getKokoroApiUrl();
+    const hfApiKey = getHfApiKey();
 
     // If provider is kokoro and no external API key/URL is set, try on-device kokoro-js ONNX first if already loaded
     if (provider === 'kokoro' && !kokoroApiKey && !kokoroApiUrl && kokoroTtsInstance) {
@@ -1185,30 +1263,35 @@
       pitch,
       speed,
       apiKey: getLocalApiKey(),
+      hfApiKey,
       elevenLabsApiKey,
       openAiApiKey,
       kokoroApiKey,
       kokoroApiUrl
-    });
+    }, 25000);
 
-    // If user selected kokoro without API key and native bridge used AndroidTTS/FormantSynth, also kick off background load of kokoro-js ONNX
-    if (provider === 'kokoro' && (!res || res.providerUsed !== 'Kokoro-82M') && !kokoroTtsInstance && !kokoroTtsLoadingPromise) {
+    // If user selected kokoro or audio8 and native bridge used AndroidTTS/FormantSynth, also kick off background load of kokoro-js ONNX
+    if ((provider === 'kokoro' || provider === 'audio8') && (!res || (res.providerUsed !== 'Kokoro-82M' && res.providerUsed !== 'Audio8-TTS-Realistic-0.6b')) && !kokoroTtsInstance && !kokoroTtsLoadingPromise) {
       synthesizeWithKokoroJs(audioCtx, text, voiceName, speed).catch(() => {});
     }
 
     if (res && res.ok && res.audioBase64) {
-      const binaryString = atob(res.audioBase64);
-      const len = binaryString.length;
-      const bytes = new Uint8Array(len);
-      for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+      try {
+        const binaryString = atob(res.audioBase64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        const decoded = await audioCtx.decodeAudioData(bytes.buffer.slice(0));
+        return decoded;
+      } catch (decodeErr) {
+        console.warn('Audio decode fallback triggered:', decodeErr);
       }
-      const decoded = await audioCtx.decodeAudioData(bytes.buffer.slice(0));
-      return decoded;
     }
 
     // Direct Web Audio / client fetch fallback if running outside Android Bridge
-    if (provider === 'kokoro') {
+    if (provider === 'audio8' || provider === 'kokoro') {
       const onnxBuf = await synthesizeWithKokoroJs(audioCtx, text, voiceName, speed);
       if (onnxBuf) return onnxBuf;
     } else if (provider === 'elevenlabs' && elevenLabsApiKey) {
@@ -1708,13 +1791,15 @@
               chunkIndex: i,
               totalChunks,
               chunkBase64: chunk,
-              mimeType
+              mimeType,
+              isAutoSave
             }, 30000);
           }
         } else if (typeof window.AndroidBridge.saveVideoToGallery === 'function') {
           finalRes = await callNativeBridge('saveVideoToGallery', {
             base64Data,
-            mimeType
+            mimeType,
+            isAutoSave
           }, 30000);
         }
 
@@ -1767,8 +1852,6 @@
       }
     } catch (_) {}
   }
-    } catch (_) {}
-  }
 
   // =========================================================
   // WIRE DOM EVENTS
@@ -1798,6 +1881,8 @@
     function openSettingsModal() {
       window.StarterAssets.playPopSound();
       document.getElementById('input-local-api-key').value = getLocalApiKey();
+      const hfKey = document.getElementById('input-hf-key');
+      if (hfKey) hfKey.value = getHfApiKey();
       const kKey = document.getElementById('input-kokoro-key');
       if (kKey) kKey.value = getKokoroApiKey();
       const kUrl = document.getElementById('input-kokoro-url');
@@ -1821,6 +1906,8 @@
     document.getElementById('btn-save-settings').addEventListener('click', () => {
       window.StarterAssets.playPopSound(1.15);
       const geminiVal = (document.getElementById('input-local-api-key').value || '').trim();
+      const hfInp = document.getElementById('input-hf-key');
+      const hfVal = hfInp ? hfInp.value.trim() : '';
       const kKeyInp = document.getElementById('input-kokoro-key');
       const kKeyVal = kKeyInp ? kKeyInp.value.trim() : '';
       const kUrlInp = document.getElementById('input-kokoro-url');
@@ -1832,6 +1919,7 @@
 
       try {
         localStorage.setItem(API_KEY_STORAGE, geminiVal);
+        setHfApiKey(hfVal);
         setKokoroApiKey(kKeyVal);
         setKokoroApiUrl(kUrlVal);
         setElevenLabsApiKey(elVal);
@@ -1840,13 +1928,14 @@
 
       callNativeBridge('saveApiKeys', {
         geminiApiKey: geminiVal,
+        hfApiKey: hfVal,
         kokoroApiKey: kKeyVal,
         kokoroApiUrl: kUrlVal,
         elevenLabsApiKey: elVal,
         openAiApiKey: oaiVal
       }).catch(() => {});
 
-      updateProviderKeyBanner(settings.voiceProvider || 'kokoro');
+      updateProviderKeyBanner(settings.voiceProvider || 'audio8');
       document.getElementById('settings-modal').classList.add('hidden');
     });
 
@@ -1855,6 +1944,7 @@
       try {
         localStorage.removeItem(STORAGE_KEY);
         localStorage.removeItem(API_KEY_STORAGE);
+        localStorage.removeItem(HF_KEY_STORAGE);
         localStorage.removeItem(KOKORO_KEY_STORAGE);
         localStorage.removeItem(KOKORO_URL_STORAGE);
         localStorage.removeItem(ELEVENLABS_KEY_STORAGE);
@@ -1863,6 +1953,7 @@
 
       callNativeBridge('saveApiKeys', {
         geminiApiKey: '',
+        hfApiKey: '',
         kokoroApiKey: '',
         kokoroApiUrl: '',
         elevenLabsApiKey: '',
@@ -2047,6 +2138,17 @@
         renderVoiceClipsList();
       });
     });
+
+    const inlineHfSaveBtn = document.getElementById('btn-inline-save-hf');
+    if (inlineHfSaveBtn) {
+      inlineHfSaveBtn.addEventListener('click', () => {
+        window.StarterAssets.playPopSound(1.2);
+        const hfKey = (document.getElementById('input-inline-hf-key').value || '').trim();
+        setHfApiKey(hfKey);
+        callNativeBridge('saveApiKeys', { hfApiKey }).catch(() => {});
+        updateProviderKeyBanner('audio8');
+      });
+    }
 
     const inlineKokoroSaveBtn = document.getElementById('btn-inline-save-kokoro');
     if (inlineKokoroSaveBtn) {
@@ -2292,6 +2394,16 @@
       });
     });
 
+    const swayToggleBtn = document.getElementById('btn-toggle-char-sway');
+    if (swayToggleBtn) {
+      swayToggleBtn.addEventListener('click', () => {
+        window.StarterAssets.playPopSound();
+        settings.charSway = settings.charSway === false;
+        saveSettings();
+        applySettingsToDom();
+      });
+    }
+
     document.querySelectorAll('#silent-mode-pills .pill-choice').forEach((btn) => {
       btn.addEventListener('click', () => {
         window.StarterAssets.playPopSound();
@@ -2433,11 +2545,12 @@
     callNativeBridge('getStoredApiKeys', {}).then((res) => {
       if (res && res.ok) {
         if (res.geminiApiKey && !getLocalApiKey()) localStorage.setItem(API_KEY_STORAGE, res.geminiApiKey);
+        if (res.hfApiKey && !getHfApiKey()) setHfApiKey(res.hfApiKey);
         if (res.kokoroApiKey && !getKokoroApiKey()) setKokoroApiKey(res.kokoroApiKey);
         if (res.kokoroApiUrl && !getKokoroApiUrl()) setKokoroApiUrl(res.kokoroApiUrl);
         if (res.elevenLabsApiKey && !getElevenLabsApiKey()) setElevenLabsApiKey(res.elevenLabsApiKey);
         if (res.openAiApiKey && !getOpenAiApiKey()) setOpenAiApiKey(res.openAiApiKey);
-        updateProviderKeyBanner(settings.voiceProvider || 'kokoro');
+        updateProviderKeyBanner(settings.voiceProvider || 'audio8');
       }
     }).catch(() => {});
   });

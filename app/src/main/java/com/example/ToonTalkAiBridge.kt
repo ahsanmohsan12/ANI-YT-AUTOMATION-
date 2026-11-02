@@ -58,6 +58,14 @@ class ToonTalkAiBridge(
       .build()
   }
 
+  private val ttsHttpClient by lazy {
+    OkHttpClient.Builder()
+      .connectTimeout(4, TimeUnit.SECONDS)
+      .readTimeout(5, TimeUnit.SECONDS)
+      .writeTimeout(4, TimeUnit.SECONDS)
+      .build()
+  }
+
   private val scriptSchema by lazy {
     Schema.obj(
       properties = mapOf(
@@ -355,6 +363,17 @@ class ToonTalkAiBridge(
     }
   }
 
+  private fun getDefaultHfToken(): String {
+    return runCatching {
+      val token = BuildConfig.HUGGINGFACE_API_KEY.trim()
+      if (token.isNotEmpty() && token != "YOUR_HUGGINGFACE_API_KEY_HERE" && !token.contains("DEFAULT")) {
+        token
+      } else {
+        ""
+      }
+    }.getOrDefault("")
+  }
+
   @JavascriptInterface
   fun saveApiKeys(callbackId: String, payloadJson: String) {
     scope.launch(Dispatchers.IO) {
@@ -363,6 +382,9 @@ class ToonTalkAiBridge(
         val prefs = context.getSharedPreferences("toontalk_native_prefs", Context.MODE_PRIVATE).edit()
         if (req.has("geminiApiKey")) {
           prefs.putString("custom_gemini_api_key", req.getString("geminiApiKey").trim())
+        }
+        if (req.has("hfApiKey")) {
+          prefs.putString("hf_api_key", req.getString("hfApiKey").trim())
         }
         if (req.has("elevenLabsApiKey")) {
           prefs.putString("elevenlabs_api_key", req.getString("elevenLabsApiKey").trim())
@@ -390,15 +412,18 @@ class ToonTalkAiBridge(
       try {
         val prefs = context.getSharedPreferences("toontalk_native_prefs", Context.MODE_PRIVATE)
         val geminiKey = prefs.getString("custom_gemini_api_key", "").orEmpty()
+        val hfKey = prefs.getString("hf_api_key", "").orEmpty().ifEmpty { getDefaultHfToken() }
         val elevenLabsKey = prefs.getString("elevenlabs_api_key", "").orEmpty()
         val openAiKey = prefs.getString("openai_api_key", "").orEmpty()
-        val kokoroKey = prefs.getString("kokoro_api_key", "").orEmpty()
+        val kokoroKey = prefs.getString("kokoro_api_key", "").orEmpty().ifEmpty { hfKey }
         val kokoroUrl = prefs.getString("kokoro_api_url", "").orEmpty()
         sendCallbackToJs(
           callbackId,
           JSONObject()
             .put("ok", true)
             .put("geminiApiKey", geminiKey)
+            .put("hfApiKey", hfKey)
+            .put("hasBuildConfigHfKey", getDefaultHfToken().isNotEmpty())
             .put("elevenLabsApiKey", elevenLabsKey)
             .put("openAiApiKey", openAiKey)
             .put("kokoroApiKey", kokoroKey)
@@ -417,12 +442,16 @@ class ToonTalkAiBridge(
         val req = JSONObject(payloadJson)
         val text = req.optString("text", "Hello there!").trim()
         val voiceName = req.optString("voiceName", "af_heart")
-        val provider = req.optString("provider", "kokoro").lowercase(Locale.ROOT)
+        val provider = req.optString("provider", "audio8").lowercase(Locale.ROOT)
         val language = req.optString("language", "English")
         val pitch = req.optDouble("pitch", 1.0).toFloat().coerceIn(0.6f, 1.6f)
         val speed = req.optDouble("speed", 1.0).toFloat().coerceIn(0.7f, 1.5f)
 
         val prefs = context.getSharedPreferences("toontalk_native_prefs", Context.MODE_PRIVATE)
+        val hfKeyPayload = req.optString("hfApiKey", "").trim()
+        if (hfKeyPayload.isNotEmpty()) {
+          prefs.edit().putString("hf_api_key", hfKeyPayload).apply()
+        }
         val elevenLabsKeyPayload = req.optString("elevenLabsApiKey", "").trim()
         if (elevenLabsKeyPayload.isNotEmpty()) {
           prefs.edit().putString("elevenlabs_api_key", elevenLabsKeyPayload).apply()
@@ -440,6 +469,11 @@ class ToonTalkAiBridge(
           prefs.edit().putString("kokoro_api_url", kokoroUrlPayload).apply()
         }
 
+        val hfApiKey = hfKeyPayload.ifEmpty {
+          prefs.getString("hf_api_key", "")?.trim().orEmpty()
+        }.ifEmpty {
+          getDefaultHfToken()
+        }
         val elevenLabsApiKey = elevenLabsKeyPayload.ifEmpty {
           prefs.getString("elevenlabs_api_key", "")?.trim().orEmpty()
         }
@@ -448,6 +482,8 @@ class ToonTalkAiBridge(
         }
         val kokoroApiKey = kokoroKeyPayload.ifEmpty {
           prefs.getString("kokoro_api_key", "")?.trim().orEmpty()
+        }.ifEmpty {
+          hfApiKey
         }
         val kokoroApiUrl = kokoroUrlPayload.ifEmpty {
           prefs.getString("kokoro_api_url", "")?.trim().orEmpty()
@@ -461,57 +497,79 @@ class ToonTalkAiBridge(
         var audioMimeType = "audio/wav"
         var providerUsed = "Builtin"
 
-        // 0. hexgrad/Kokoro-82M Voice Models
-        if (provider == "kokoro") {
-          val (bytes, mime) = tryKokoroTts(kokoroApiKey, kokoroApiUrl, text, voiceName, speed)
-          if (bytes != null && bytes.isNotEmpty()) {
-            audioBytes = bytes
-            audioMimeType = mime
-            providerUsed = "Kokoro-82M"
+        // Bound remote cloud TTS attempts to max 8.5s total so native synthesis never times out
+        kotlinx.coroutines.withTimeoutOrNull(8_500L) {
+          // 0A. Edge0/Audio8-TTS-Realistic-0.6b via Hugging Face Inference & Space API
+          if (provider == "audio8") {
+            val (bytes, mime) = tryAudio8RealisticTts(hfApiKey, text, voiceName, language, speed)
+            if (bytes != null && bytes.isNotEmpty()) {
+              audioBytes = bytes
+              audioMimeType = mime
+              providerUsed = "Audio8-TTS-Realistic-0.6b"
+            } else if (kokoroApiKey.isNotEmpty() || kokoroApiUrl.isNotEmpty()) {
+              val (kBytes, kMime) = tryKokoroTts(kokoroApiKey, kokoroApiUrl, text, voiceName, speed)
+              if (kBytes != null && kBytes.isNotEmpty()) {
+                audioBytes = kBytes
+                audioMimeType = kMime
+                providerUsed = "Kokoro-82M"
+              }
+            }
           }
-        }
 
-        // 1. ElevenLabs Ultra-Realistic Voices
-        if (audioBytes == null && provider == "elevenlabs" && elevenLabsApiKey.isNotEmpty()) {
-          val customVoiceId = req.optString("customVoiceId", "")
-          val (bytes, mime) = tryElevenLabsTts(elevenLabsApiKey, text, voiceName, customVoiceId)
-          if (bytes != null && bytes.isNotEmpty()) {
-            audioBytes = bytes
-            audioMimeType = mime
-            providerUsed = "ElevenLabs"
+          // 0B. hexgrad/Kokoro-82M Voice Models
+          if (audioBytes == null && provider == "kokoro") {
+            val (bytes, mime) = tryKokoroTts(kokoroApiKey, kokoroApiUrl, text, voiceName, speed)
+            if (bytes != null && bytes.isNotEmpty()) {
+              audioBytes = bytes
+              audioMimeType = mime
+              providerUsed = "Kokoro-82M"
+            }
           }
-        }
 
-        // 2. OpenAI TTS Models
-        if (audioBytes == null && provider == "openai" && openAiApiKey.isNotEmpty()) {
-          val (bytes, mime) = tryOpenAiTts(openAiApiKey, text, voiceName, speed)
-          if (bytes != null && bytes.isNotEmpty()) {
-            audioBytes = bytes
-            audioMimeType = mime
-            providerUsed = "OpenAI"
+          // 1. ElevenLabs Ultra-Realistic Voices
+          if (audioBytes == null && provider == "elevenlabs" && elevenLabsApiKey.isNotEmpty()) {
+            val customVoiceId = req.optString("customVoiceId", "")
+            val (bytes, mime) = tryElevenLabsTts(elevenLabsApiKey, text, voiceName, customVoiceId)
+            if (bytes != null && bytes.isNotEmpty()) {
+              audioBytes = bytes
+              audioMimeType = mime
+              providerUsed = "ElevenLabs"
+            }
           }
-        }
 
-        // 3. Gemini REST TTS (if custom Gemini API key provided)
-        if (audioBytes == null && customApiKey.isNotEmpty()) {
-          audioBytes = tryGeminiRestTts(customApiKey, text, voiceName)
-          if (audioBytes != null && audioBytes.isNotEmpty()) {
-            audioMimeType = "audio/wav"
-            providerUsed = "Gemini"
+          // 2. OpenAI TTS Models
+          if (audioBytes == null && provider == "openai" && openAiApiKey.isNotEmpty()) {
+            val (bytes, mime) = tryOpenAiTts(openAiApiKey, text, voiceName, speed)
+            if (bytes != null && bytes.isNotEmpty()) {
+              audioBytes = bytes
+              audioMimeType = mime
+              providerUsed = "OpenAI"
+            }
+          }
+
+          // 3. Gemini REST TTS (if custom Gemini API key provided)
+          if (audioBytes == null && customApiKey.isNotEmpty()) {
+            val geminiBytes = tryGeminiRestTts(customApiKey, text, voiceName)
+            if (geminiBytes != null && geminiBytes.isNotEmpty()) {
+              audioBytes = geminiBytes
+              audioMimeType = "audio/wav"
+              providerUsed = "Gemini"
+            }
           }
         }
 
         // 4. Android native TextToSpeech engine
-        if (audioBytes == null || audioBytes.size < 512) {
-          audioBytes = tryAndroidNativeTts(text, voiceName, language, pitch, speed)
-          if (audioBytes != null && audioBytes.isNotEmpty()) {
+        if ((audioBytes?.size ?: 0) < 512) {
+          val nativeBytes = tryAndroidNativeTts(text, voiceName, language, pitch, speed)
+          if (nativeBytes != null && nativeBytes.isNotEmpty()) {
+            audioBytes = nativeBytes
             audioMimeType = "audio/wav"
             providerUsed = "AndroidTTS"
           }
         }
 
         // 5. High-fidelity resonant formant vocal synthesizer fallback
-        if (audioBytes == null || audioBytes.size < 512) {
+        if ((audioBytes?.size ?: 0) < 512) {
           audioBytes = generateExpressiveVocalWav(text, voiceName, pitch, speed)
           audioMimeType = "audio/wav"
           providerUsed = "FormantSynth"
@@ -540,6 +598,106 @@ class ToonTalkAiBridge(
     }
   }
 
+  private fun persistVideoBytesToGalleryAndDownloads(
+    allBytes: ByteArray,
+    fileName: String,
+    ext: String,
+    isAutoSave: Boolean
+  ): String {
+    val mime = if (ext == "mp4") "video/mp4" else "video/webm"
+
+    // 1. Always save in app exports cache for instant Play Video & Share (zero-permission guaranteed)
+    val exportsDir = File(context.cacheDir, "exports").apply { mkdirs() }
+    val localFile = File(exportsDir, fileName)
+    localFile.writeBytes(allBytes)
+
+    // 2. Also save in app-specific external Movies directory if available
+    runCatching {
+      context.getExternalFilesDir(Environment.DIRECTORY_MOVIES)?.let { extMovies ->
+        extMovies.mkdirs()
+        File(extMovies, fileName).writeBytes(allBytes)
+      }
+    }
+
+    var savedLocationLabel = "Movies/AniShorts/$fileName"
+    val resolver = context.contentResolver
+
+    // 3. Save into public Android Gallery (Movies/AniShorts)
+    runCatching {
+      val contentValues = ContentValues().apply {
+        put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
+        put(MediaStore.Video.Media.MIME_TYPE, mime)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+          put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/AniShorts")
+          put(MediaStore.Video.Media.IS_PENDING, 1)
+        }
+      }
+      val videoUri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues)
+      if (videoUri != null) {
+        resolver.openOutputStream(videoUri)?.use { out ->
+          out.write(allBytes)
+          out.flush()
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+          val updateValues = ContentValues().apply {
+            put(MediaStore.Video.Media.IS_PENDING, 0)
+          }
+          resolver.update(videoUri, updateValues, null, null)
+        }
+      }
+    }.onFailure { e ->
+      Log.w(TAG, "Public MediaStore.Video insert fallback: ${e.message}")
+    }
+
+    // 4. When user explicitly taps Save/Download, also save to public Downloads/AniShorts on Android 10+
+    if (!isAutoSave && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      runCatching {
+        val dlValues = ContentValues().apply {
+          put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+          put(MediaStore.Downloads.MIME_TYPE, mime)
+          put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/AniShorts")
+          put(MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val dlUri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, dlValues)
+        if (dlUri != null) {
+          resolver.openOutputStream(dlUri)?.use { out ->
+            out.write(allBytes)
+            out.flush()
+          }
+          val updateValues = ContentValues().apply {
+            put(MediaStore.Downloads.IS_PENDING, 0)
+          }
+          resolver.update(dlUri, updateValues, null, null)
+          savedLocationLabel = "Movies/AniShorts & Downloads/AniShorts/$fileName"
+        }
+      }
+    }
+
+    // 5. Scan file into MediaStore so Gallery refreshes immediately
+    runCatching {
+      android.media.MediaScannerConnection.scanFile(
+        context,
+        arrayOf(localFile.absolutePath),
+        arrayOf(mime),
+        null
+      )
+    }
+
+    if (!isAutoSave) {
+      scope.launch(Dispatchers.Main) {
+        runCatching {
+          android.widget.Toast.makeText(
+            context,
+            "✅ Saved to Gallery: $savedLocationLabel",
+            android.widget.Toast.LENGTH_LONG
+          ).show()
+        }
+      }
+    }
+
+    return savedLocationLabel
+  }
+
   @JavascriptInterface
   fun saveVideoChunk(callbackId: String, payloadJson: String) {
     scope.launch(Dispatchers.IO) {
@@ -550,6 +708,7 @@ class ToonTalkAiBridge(
         val totalChunks = req.getInt("totalChunks")
         val chunkBase64 = req.getString("chunkBase64")
         val mimeType = req.optString("mimeType", "video/mp4")
+        val isAutoSave = req.optBoolean("isAutoSave", false)
         val ext = if (mimeType.contains("mp4", ignoreCase = true)) "mp4" else "webm"
 
         val tempFile = activeChunkTransfers.getOrPut(transferId) {
@@ -565,52 +724,14 @@ class ToonTalkAiBridge(
           val allBytes = tempFile.readBytes()
           tempFile.delete()
 
-          // 1. Save directly into public Android Movies/AniShorts folder
-          val resolver = context.contentResolver
-          val contentValues = ContentValues().apply {
-            put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
-            put(MediaStore.Video.Media.MIME_TYPE, if (ext == "mp4") "video/mp4" else "video/webm")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-              put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/AniShorts")
-              put(MediaStore.Video.Media.IS_PENDING, 1)
-            }
-          }
-
-          val videoUri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues)
-          if (videoUri != null) {
-            resolver.openOutputStream(videoUri)?.use { out ->
-              out.write(allBytes)
-              out.flush()
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-              val updateValues = ContentValues().apply {
-                put(MediaStore.Video.Media.IS_PENDING, 0)
-              }
-              resolver.update(videoUri, updateValues, null, null)
-            }
-          }
-
-          // 2. Also keep in app exports cache for instant sharing and viewing
-          val exportsDir = File(context.cacheDir, "exports").apply { mkdirs() }
-          val localFile = File(exportsDir, fileName)
-          localFile.writeBytes(allBytes)
-
-          // 3. Scan file into MediaStore so Gallery refreshes immediately
-          try {
-            android.media.MediaScannerConnection.scanFile(
-              context,
-              arrayOf(localFile.absolutePath),
-              arrayOf(if (ext == "mp4") "video/mp4" else "video/webm"),
-              null
-            )
-          } catch (_: Exception) {}
+          val savedPath = persistVideoBytesToGalleryAndDownloads(allBytes, fileName, ext, isAutoSave)
 
           sendCallbackToJs(
             callbackId,
             JSONObject()
               .put("ok", true)
               .put("fileName", fileName)
-              .put("savedPath", "Movies/AniShorts/$fileName")
+              .put("savedPath", savedPath)
           )
         } else {
           sendCallbackToJs(
@@ -669,54 +790,19 @@ class ToonTalkAiBridge(
         val req = JSONObject(payloadJson)
         val base64Data = req.getString("base64Data")
         val mimeType = req.optString("mimeType", "video/mp4")
+        val isAutoSave = req.optBoolean("isAutoSave", false)
         val ext = if (mimeType.contains("mp4", ignoreCase = true)) "mp4" else "webm"
         val fileName = "AniShorts_${System.currentTimeMillis()}.$ext"
         val bytes = Base64.decode(base64Data, Base64.DEFAULT)
 
-        val resolver = context.contentResolver
-        val contentValues = ContentValues().apply {
-          put(MediaStore.Video.Media.DISPLAY_NAME, fileName)
-          put(MediaStore.Video.Media.MIME_TYPE, if (ext == "mp4") "video/mp4" else "video/webm")
-          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/AniShorts")
-            put(MediaStore.Video.Media.IS_PENDING, 1)
-          }
-        }
-
-        val videoUri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, contentValues)
-        if (videoUri != null) {
-          resolver.openOutputStream(videoUri)?.use { out ->
-            out.write(bytes)
-            out.flush()
-          }
-          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val updateValues = ContentValues().apply {
-              put(MediaStore.Video.Media.IS_PENDING, 0)
-            }
-            resolver.update(videoUri, updateValues, null, null)
-          }
-        }
-
-        // Also keep a copy in app exports folder
-        val exportsDir = File(context.cacheDir, "exports").apply { mkdirs() }
-        val localFile = File(exportsDir, fileName)
-        localFile.writeBytes(bytes)
-
-        try {
-          android.media.MediaScannerConnection.scanFile(
-            context,
-            arrayOf(localFile.absolutePath),
-            arrayOf(if (ext == "mp4") "video/mp4" else "video/webm"),
-            null
-          )
-        } catch (_: Exception) {}
+        val savedPath = persistVideoBytesToGalleryAndDownloads(bytes, fileName, ext, isAutoSave)
 
         sendCallbackToJs(
           callbackId,
           JSONObject()
             .put("ok", true)
             .put("fileName", fileName)
-            .put("savedPath", "Movies/AniShorts/$fileName")
+            .put("savedPath", savedPath)
         )
       } catch (e: Exception) {
         Log.e(TAG, "Failed to save video to Gallery", e)
@@ -1065,6 +1151,155 @@ class ToonTalkAiBridge(
     return Pair(null, "audio/wav")
   }
 
+  private fun tryAudio8RealisticTts(
+    hfApiKey: String,
+    text: String,
+    voiceName: String,
+    language: String,
+    speed: Float
+  ): Pair<ByteArray?, String> {
+    val cleanVoice = if (voiceName.contains("_")) voiceName.trim() else "af_heart"
+
+    // 1. Try Hugging Face Inference Router & API for Edge0/Audio8-TTS-Realistic-0.6b
+    if (hfApiKey.isNotEmpty()) {
+      val hfModelEndpoints = listOf(
+        "https://router.huggingface.co/hf-inference/models/Edge0/Audio8-TTS-Realistic-0.6b",
+        "https://api-inference.huggingface.co/models/Edge0/Audio8-TTS-Realistic-0.6b"
+      )
+      for (hfUrl in hfModelEndpoints) {
+        try {
+          val hfBody = JSONObject().apply {
+            put("inputs", text)
+            put("parameters", JSONObject().apply {
+              put("voice", cleanVoice)
+              put("language", language)
+              put("speed", speed.coerceIn(0.5f, 2.0f).toDouble())
+            })
+          }
+          val request = Request.Builder()
+            .url(hfUrl)
+            .addHeader("Authorization", "Bearer $hfApiKey")
+            .post(hfBody.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+
+          ttsHttpClient.newCall(request).execute().use { response ->
+            if (response.isSuccessful) {
+              val contentType = response.header("Content-Type", "audio/wav") ?: "audio/wav"
+              val bytes = response.body?.bytes()
+              if (bytes != null && bytes.size > 256 && !contentType.contains("application/json")) {
+                return Pair(
+                  bytes,
+                  when {
+                    contentType.contains("mpeg") || contentType.contains("mp3") -> "audio/mpeg"
+                    contentType.contains("flac") -> "audio/flac"
+                    else -> "audio/wav"
+                  }
+                )
+              }
+            }
+          }
+        } catch (e: Exception) {
+          Log.w(TAG, "HF Inference Edge0/Audio8-TTS-Realistic-0.6b ($hfUrl) attempt failed", e)
+        }
+      }
+    }
+
+    // 2. Try Edge0/Audio8-TTS-Realistic-0.6b Official Hugging Face Space Gradio API
+    try {
+      val spaceBase = "https://edge0-audio8-tts-realistic-0-6b.hf.space"
+      val callPayload = JSONObject().apply {
+        put("data", org.json.JSONArray().apply {
+          put(text)
+          put(JSONObject.NULL)
+          put("")
+          put(1024)
+          put(0.8)
+          put(0.8)
+          put(1.1)
+        })
+      }
+      val callReqBuilder = Request.Builder()
+        .url("$spaceBase/gradio_api/call/generate")
+        .post(callPayload.toString().toRequestBody("application/json".toMediaType()))
+      if (hfApiKey.isNotEmpty()) {
+        callReqBuilder.addHeader("Authorization", "Bearer $hfApiKey")
+      }
+
+      var eventId: String? = null
+      ttsHttpClient.newCall(callReqBuilder.build()).execute().use { resp ->
+        if (resp.isSuccessful) {
+          val bodyStr = resp.body?.string().orEmpty()
+          if (bodyStr.isNotEmpty()) {
+            eventId = JSONObject(bodyStr).optString("event_id").takeIf { it.isNotEmpty() }
+          }
+        }
+      }
+
+      if (!eventId.isNullOrEmpty()) {
+        val streamReqBuilder = Request.Builder()
+          .url("$spaceBase/gradio_api/call/generate/$eventId")
+          .get()
+        if (hfApiKey.isNotEmpty()) {
+          streamReqBuilder.addHeader("Authorization", "Bearer $hfApiKey")
+        }
+
+        var audioFileUrl: String? = null
+        ttsHttpClient.newCall(streamReqBuilder.build()).execute().use { streamResp ->
+          if (streamResp.isSuccessful) {
+            val sseText = streamResp.body?.string().orEmpty()
+            val lines = sseText.lines()
+            for (line in lines) {
+              if (line.startsWith("data:")) {
+                val dataJson = line.removePrefix("data:").trim()
+                if (dataJson.startsWith("[")) {
+                  val arr = org.json.JSONArray(dataJson)
+                  val firstObj = arr.optJSONObject(0)
+                  if (firstObj != null) {
+                    val directUrl = firstObj.optString("url")
+                    val path = firstObj.optString("path")
+                    audioFileUrl = when {
+                      directUrl.startsWith("http") -> directUrl
+                      path.isNotEmpty() -> "$spaceBase/gradio_api/file=$path"
+                      else -> null
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        if (!audioFileUrl.isNullOrEmpty()) {
+          val dlBuilder = Request.Builder().url(audioFileUrl!!).get()
+          if (hfApiKey.isNotEmpty()) {
+            dlBuilder.addHeader("Authorization", "Bearer $hfApiKey")
+          }
+          ttsHttpClient.newCall(dlBuilder.build()).execute().use { audioResp ->
+            if (audioResp.isSuccessful) {
+              val bytes = audioResp.body?.bytes()
+              if (bytes != null && bytes.size > 256) {
+                val ct = audioResp.header("Content-Type", "audio/wav") ?: "audio/wav"
+                return Pair(bytes, if (ct.contains("mpeg") || ct.contains("mp3")) "audio/mpeg" else "audio/wav")
+              }
+            }
+          }
+        }
+      }
+    } catch (e: Exception) {
+      Log.w(TAG, "Audio8 Gradio Space call failed, falling back to HF Kokoro/Neural engine", e)
+    }
+
+    // 3. Fallback to Hugging Face Kokoro-82M with the same HF token if Audio8 Space is sleeping
+    if (hfApiKey.isNotEmpty()) {
+      val (kokoroBytes, kokoroMime) = tryKokoroTts(hfApiKey, "", text, cleanVoice, speed)
+      if (kokoroBytes != null && kokoroBytes.isNotEmpty()) {
+        return Pair(kokoroBytes, kokoroMime)
+      }
+    }
+
+    return Pair(null, "audio/wav")
+  }
+
   private fun tryKokoroTts(
     apiKey: String,
     apiUrl: String,
@@ -1092,7 +1327,7 @@ class ToonTalkAiBridge(
         if (apiKey.isNotEmpty()) {
           reqBuilder.addHeader("Authorization", "Bearer $apiKey")
         }
-        okHttpClient.newCall(reqBuilder.build()).execute().use { response ->
+        ttsHttpClient.newCall(reqBuilder.build()).execute().use { response ->
           if (response.isSuccessful) {
             val bytes = response.body?.bytes()
             if (bytes != null && bytes.size > 256) {
@@ -1122,7 +1357,7 @@ class ToonTalkAiBridge(
           .addHeader("Authorization", "Bearer $apiKey")
           .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
           .build()
-        okHttpClient.newCall(req).execute().use { response ->
+        ttsHttpClient.newCall(req).execute().use { response ->
           if (response.isSuccessful) {
             val bytes = response.body?.bytes()
             if (bytes != null && bytes.size > 256) {
@@ -1145,7 +1380,7 @@ class ToonTalkAiBridge(
           .addHeader("Authorization", "Bearer $apiKey")
           .post(hfBody.toString().toRequestBody("application/json".toMediaType()))
           .build()
-        okHttpClient.newCall(req).execute().use { response ->
+        ttsHttpClient.newCall(req).execute().use { response ->
           if (response.isSuccessful) {
             val bytes = response.body?.bytes()
             if (bytes != null && bytes.size > 256) {
