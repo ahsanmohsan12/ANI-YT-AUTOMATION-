@@ -5,6 +5,12 @@
   const API_KEY_STORAGE = 'toontalk_local_gemini_key';
   const ELEVENLABS_KEY_STORAGE = 'ani_shorts_elevenlabs_key';
   const OPENAI_KEY_STORAGE = 'ani_shorts_openai_key';
+  const KOKORO_KEY_STORAGE = 'ani_shorts_kokoro_key';
+  const KOKORO_URL_STORAGE = 'ani_shorts_kokoro_url';
+
+  // Cached kokoro-js ONNX instance
+  let kokoroTtsInstance = null;
+  let kokoroTtsLoadingPromise = null;
 
   // Native Bridge Promise Coordinator
   let bridgeSeq = 1;
@@ -53,6 +59,58 @@
 
   // Voice Catalogs for all providers
   const VOICE_CATALOGS = {
+    kokoro: [
+      {
+        group: '🇺🇸 Kokoro-82M American Female (hexgrad/kokoro)',
+        voices: [
+          { id: 'af_heart', label: 'af_heart — Heart (Flagship Grade-A Natural Female ⭐)' },
+          { id: 'af_bella', label: 'af_bella — Bella (Warm Expressive Creator Female ⭐)' },
+          { id: 'af_nicole', label: 'af_nicole — Nicole (Smooth ASMR & Chill Female)' },
+          { id: 'af_sarah', label: 'af_sarah — Sarah (Confident Clear Storyteller Female)' },
+          { id: 'af_sky', label: 'af_sky — Sky (Upbeat Energetic Young Female)' },
+          { id: 'af_aoede', label: 'af_aoede — Aoede (Melodic Dynamic Female)' },
+          { id: 'af_kore', label: 'af_kore — Kore (Bright Anime & Snappy Female)' },
+          { id: 'af_nova', label: 'af_nova — Nova (Viral Shorts Narrator Female)' },
+          { id: 'af_jessica', label: 'af_jessica — Jessica (Conversational Podcaster Female)' },
+          { id: 'af_river', label: 'af_river — River (Calm Documentary Female)' }
+        ]
+      },
+      {
+        group: '🇺🇸 Kokoro-82M American Male (hexgrad/kokoro)',
+        voices: [
+          { id: 'am_adam', label: 'am_adam — Adam (Deep Viral Narrator Male ⭐)' },
+          { id: 'am_michael', label: 'am_michael — Michael (Natural YouTuber Creator Male ⭐)' },
+          { id: 'am_fenrir', label: 'am_fenrir — Fenrir (High-Energy Hype & Gamer Male)' },
+          { id: 'am_puck', label: 'am_puck — Puck (Playful Witty Sidekick Male)' },
+          { id: 'am_echo', label: 'am_echo — Echo (Warm Smooth Podcaster Male)' },
+          { id: 'am_eric', label: 'am_eric — Eric (Clear Tech & Facts Male)' },
+          { id: 'am_liam', label: 'am_liam — Liam (Fast Snappy Creator Male)' },
+          { id: 'am_onyx', label: 'am_onyx — Onyx (Ultra-Deep Movie Trailer Male)' }
+        ]
+      },
+      {
+        group: '🇬🇧 Kokoro-82M British English',
+        voices: [
+          { id: 'bf_emma', label: 'bf_emma — Emma (Refined British Creator Female ⭐)' },
+          { id: 'bf_isabella', label: 'bf_isabella — Isabella (Expressive British Story Female)' },
+          { id: 'bf_alice', label: 'bf_alice — Alice (Polished UK Narrator Female)' },
+          { id: 'bf_lily', label: 'bf_lily — Lily (Cheerful London Vlogger Female)' },
+          { id: 'bm_george', label: 'bm_george — George (Classic British Documentary Male ⭐)' },
+          { id: 'bm_lewis', label: 'bm_lewis — Lewis (Modern UK Podcaster Male)' },
+          { id: 'bm_daniel', label: 'bm_daniel — Daniel (Deep British Studio Male)' },
+          { id: 'bm_fable', label: 'bm_fable — Fable (Dramatic Storybook UK Male)' }
+        ]
+      },
+      {
+        group: '🇮🇳 Kokoro-82M Hindi & Desi',
+        voices: [
+          { id: 'hf_alpha', label: 'hf_alpha — Alpha (Natural Hindi / Desi Female ⭐)' },
+          { id: 'hf_beta', label: 'hf_beta — Beta (Expressive Hindi Vlogger Female)' },
+          { id: 'hm_omega', label: 'hm_omega — Omega (Deep Hindi / Desi Creator Male ⭐)' },
+          { id: 'hm_psi', label: 'hm_psi — Psi (Energetic Hinglish / Hindi Male)' }
+        ]
+      }
+    ],
     builtin: [
       {
         group: '🇺🇸 Natural American',
@@ -158,9 +216,9 @@
     customStyle: '',
     language: 'English',
     lengthSec: 30,
-    voiceProvider: 'builtin',
-    voiceA: 'Alex',
-    voiceB: 'Emma',
+    voiceProvider: 'kokoro',
+    voiceA: 'am_michael',
+    voiceB: 'af_heart',
     customVoiceIdA: '',
     customVoiceIdB: '',
     speedA: 1.05,
@@ -185,19 +243,20 @@
     wordsPerScreen: 3,
     highlightColor: '#3ddc6a',
     outlineThickness: 10,
+    showSpeakerTag: true
   };
 
   const VOICE_DUO_PRESETS = {
-    natural: { voiceA: 'Alex', voiceB: 'Emma', speedA: 1.0, speedB: 1.0, pitchA: 1.0, pitchB: 1.0 },
-    gamer: { voiceA: 'Leo', voiceB: 'Puck', speedA: 1.1, speedB: 1.15, pitchA: 1.05, pitchB: 1.1 },
-    trailer: { voiceA: 'Marcus', voiceB: 'Charon', speedA: 0.9, speedB: 0.95, pitchA: 0.85, pitchB: 0.9 },
-    story: { voiceA: 'Oliver', voiceB: 'Lily', speedA: 0.95, speedB: 1.0, pitchA: 1.0, pitchB: 1.05 },
-    desi: { voiceA: 'Arjun', voiceB: 'Priya', speedA: 1.05, speedB: 1.05, pitchA: 1.0, pitchB: 1.1 },
-    bollywood: { voiceA: 'Kabir', voiceB: 'Ananya', speedA: 0.96, speedB: 1.05, pitchA: 0.92, pitchB: 1.08 },
-    urdu: { voiceA: 'Zayd', voiceB: 'Ayesha', speedA: 1.0, speedB: 1.04, pitchA: 1.0, pitchB: 1.05 },
-    bbcdoc: { voiceA: 'Arthur', voiceB: 'Sophia', speedA: 0.92, speedB: 0.98, pitchA: 0.88, pitchB: 1.02 },
-    action: { voiceA: 'Jack', voiceB: 'Maya', speedA: 1.05, speedB: 1.02, pitchA: 0.95, pitchB: 1.05 },
-    anime: { voiceA: 'Chloe', voiceB: 'Zephyr', speedA: 1.1, speedB: 1.2, pitchA: 1.15, pitchB: 1.25 }
+    natural: { voiceA: 'am_michael', voiceB: 'af_heart', speedA: 1.0, speedB: 1.0, pitchA: 1.0, pitchB: 1.0 },
+    gamer: { voiceA: 'am_fenrir', voiceB: 'am_puck', speedA: 1.1, speedB: 1.15, pitchA: 1.05, pitchB: 1.1 },
+    trailer: { voiceA: 'am_onyx', voiceB: 'am_adam', speedA: 0.92, speedB: 0.96, pitchA: 0.88, pitchB: 0.92 },
+    story: { voiceA: 'bm_george', voiceB: 'bf_emma', speedA: 0.96, speedB: 1.0, pitchA: 1.0, pitchB: 1.04 },
+    desi: { voiceA: 'hm_omega', voiceB: 'hf_alpha', speedA: 1.05, speedB: 1.05, pitchA: 1.0, pitchB: 1.08 },
+    bollywood: { voiceA: 'hm_psi', voiceB: 'hf_beta', speedA: 0.98, speedB: 1.05, pitchA: 0.94, pitchB: 1.08 },
+    urdu: { voiceA: 'hm_omega', voiceB: 'hf_alpha', speedA: 1.0, speedB: 1.04, pitchA: 1.0, pitchB: 1.05 },
+    bbcdoc: { voiceA: 'bm_daniel', voiceB: 'bf_alice', speedA: 0.94, speedB: 0.98, pitchA: 0.90, pitchB: 1.02 },
+    action: { voiceA: 'am_adam', voiceB: 'af_bella', speedA: 1.05, speedB: 1.02, pitchA: 0.95, pitchB: 1.05 },
+    anime: { voiceA: 'af_kore', voiceB: 'af_sky', speedA: 1.1, speedB: 1.18, pitchA: 1.12, pitchB: 1.2 }
   };
 
   let settings = loadSettings();
@@ -330,12 +389,40 @@
     } catch (_) {}
   }
 
+  function getKokoroApiKey() {
+    try {
+      return localStorage.getItem(KOKORO_KEY_STORAGE) || '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function setKokoroApiKey(key) {
+    try {
+      localStorage.setItem(KOKORO_KEY_STORAGE, (key || '').trim());
+    } catch (_) {}
+  }
+
+  function getKokoroApiUrl() {
+    try {
+      return localStorage.getItem(KOKORO_URL_STORAGE) || '';
+    } catch (_) {
+      return '';
+    }
+  }
+
+  function setKokoroApiUrl(url) {
+    try {
+      localStorage.setItem(KOKORO_URL_STORAGE, (url || '').trim());
+    } catch (_) {}
+  }
+
   function populateVoiceSelects(provider) {
     const selA = document.getElementById('select-voice-a');
     const selB = document.getElementById('select-voice-b');
     if (!selA || !selB) return;
 
-    const catalog = VOICE_CATALOGS[provider] || VOICE_CATALOGS.builtin;
+    const catalog = VOICE_CATALOGS[provider] || VOICE_CATALOGS.kokoro;
     let html = '';
     const validVoiceIds = new Set();
 
@@ -360,12 +447,14 @@
 
     // Pick reasonable defaults if the active voice is not in this provider
     if (!validVoiceIds.has(settings.voiceA)) {
-      if (provider === 'elevenlabs') settings.voiceA = 'Adam';
+      if (provider === 'kokoro') settings.voiceA = 'am_michael';
+      else if (provider === 'elevenlabs') settings.voiceA = 'Adam';
       else if (provider === 'openai') settings.voiceA = 'echo';
       else settings.voiceA = 'Alex';
     }
     if (!validVoiceIds.has(settings.voiceB)) {
-      if (provider === 'elevenlabs') settings.voiceB = 'Rachel';
+      if (provider === 'kokoro') settings.voiceB = 'af_heart';
+      else if (provider === 'elevenlabs') settings.voiceB = 'Rachel';
       else if (provider === 'openai') settings.voiceB = 'nova';
       else settings.voiceB = 'Emma';
     }
@@ -382,10 +471,35 @@
     const input = document.getElementById('input-inline-provider-key');
     const status = document.getElementById('provider-key-status');
     const customBox = document.getElementById('elevenlabs-custom-ids-box');
+    const kokoroBanner = document.getElementById('kokoro-engine-banner');
+
+    if (kokoroBanner) {
+      if (provider === 'kokoro') {
+        kokoroBanner.classList.remove('hidden');
+        const kKeyInp = document.getElementById('input-inline-kokoro-key');
+        const kUrlInp = document.getElementById('input-inline-kokoro-url');
+        const kStatus = document.getElementById('kokoro-engine-status');
+        const kKey = getKokoroApiKey();
+        const kUrl = getKokoroApiUrl();
+        if (kKeyInp) kKeyInp.value = kKey;
+        if (kUrlInp) kUrlInp.value = kUrl;
+        if (kStatus) {
+          if (kUrl || kKey) {
+            kStatus.textContent = '🦊 hexgrad/Kokoro-82M Connected (Cloud API + On-Device ONNX)';
+          } else if (kokoroTtsInstance) {
+            kStatus.textContent = '🦊 hexgrad/Kokoro-82M Active (kokoro-js ONNX Loaded & Ready!)';
+          } else {
+            kStatus.textContent = '🦊 hexgrad/Kokoro-82M Ready (Free On-Device Neural ONNX + Optional API)';
+          }
+        }
+      } else {
+        kokoroBanner.classList.add('hidden');
+      }
+    }
 
     if (!banner) return;
 
-    if (provider === 'builtin') {
+    if (provider === 'builtin' || provider === 'kokoro') {
       banner.classList.add('hidden');
       if (customBox) customBox.classList.add('hidden');
       return;
@@ -998,12 +1112,69 @@
   // =========================================================
   // STEP 4: VOICES & AUDIOBUFFER SYNTHESIS
   // =========================================================
+  async function synthesizeWithKokoroJs(audioCtx, text, voiceName, speed = 1.0) {
+    try {
+      const kStatus = document.getElementById('kokoro-engine-status');
+      if (!kokoroTtsInstance) {
+        if (!kokoroTtsLoadingPromise) {
+          kokoroTtsLoadingPromise = (async () => {
+            if (kStatus) {
+              kStatus.textContent = '⏳ Loading hexgrad/Kokoro-82M ONNX neural model (kokoro-js)...';
+            }
+            const mod = await import('https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm');
+            const KokoroTTS = mod.KokoroTTS;
+            const instance = await KokoroTTS.from_pretrained('onnx-community/Kokoro-82M-v1.0-ONNX', {
+              dtype: 'q8',
+              device: 'wasm'
+            });
+            kokoroTtsInstance = instance;
+            if (kStatus) {
+              kStatus.textContent = '🦊 hexgrad/Kokoro-82M Active (kokoro-js ONNX Loaded & Ready!)';
+            }
+            return instance;
+          })();
+        }
+        await Promise.race([
+          kokoroTtsLoadingPromise,
+          new Promise((_, rej) => setTimeout(() => rej(new Error('Kokoro ONNX load timeout')), 14000))
+        ]);
+      }
+
+      if (kokoroTtsInstance) {
+        const cleanVoice = (voiceName && voiceName.includes('_')) ? voiceName : 'af_heart';
+        const rawAudio = await kokoroTtsInstance.generate(text, {
+          voice: cleanVoice,
+          speed: Math.max(0.5, Math.min(2.0, speed || 1.0))
+        });
+        if (rawAudio && rawAudio.audio && rawAudio.audio.length > 0) {
+          const sr = rawAudio.sampling_rate || 24000;
+          const samples = rawAudio.audio;
+          const buf = audioCtx.createBuffer(1, samples.length, sr);
+          buf.getChannelData(0).set(samples);
+          return buf;
+        }
+      }
+    } catch (err) {
+      console.warn('kokoro-js local ONNX fallback to native bridge:', err);
+      kokoroTtsLoadingPromise = null;
+    }
+    return null;
+  }
+
   async function synthesizeBufferForText(text, voiceName, pitch = 1.0, speed = 1.0, speaker = 'A') {
     const audioCtx = getSharedAudioCtx();
-    const provider = settings.voiceProvider || 'builtin';
+    const provider = settings.voiceProvider || 'kokoro';
     const customVoiceId = (speaker === 'B') ? (settings.customVoiceIdB || '') : (settings.customVoiceIdA || '');
     const elevenLabsApiKey = getElevenLabsApiKey();
     const openAiApiKey = getOpenAiApiKey();
+    const kokoroApiKey = getKokoroApiKey();
+    const kokoroApiUrl = getKokoroApiUrl();
+
+    // If provider is kokoro and no external API key/URL is set, try on-device kokoro-js ONNX first if already loaded
+    if (provider === 'kokoro' && !kokoroApiKey && !kokoroApiUrl && kokoroTtsInstance) {
+      const onnxBuf = await synthesizeWithKokoroJs(audioCtx, text, voiceName, speed);
+      if (onnxBuf) return onnxBuf;
+    }
 
     const res = await callNativeBridge('synthesizeVoice', {
       text,
@@ -1015,8 +1186,15 @@
       speed,
       apiKey: getLocalApiKey(),
       elevenLabsApiKey,
-      openAiApiKey
+      openAiApiKey,
+      kokoroApiKey,
+      kokoroApiUrl
     });
+
+    // If user selected kokoro without API key and native bridge used AndroidTTS/FormantSynth, also kick off background load of kokoro-js ONNX
+    if (provider === 'kokoro' && (!res || res.providerUsed !== 'Kokoro-82M') && !kokoroTtsInstance && !kokoroTtsLoadingPromise) {
+      synthesizeWithKokoroJs(audioCtx, text, voiceName, speed).catch(() => {});
+    }
 
     if (res && res.ok && res.audioBase64) {
       const binaryString = atob(res.audioBase64);
@@ -1030,7 +1208,10 @@
     }
 
     // Direct Web Audio / client fetch fallback if running outside Android Bridge
-    if (provider === 'elevenlabs' && elevenLabsApiKey) {
+    if (provider === 'kokoro') {
+      const onnxBuf = await synthesizeWithKokoroJs(audioCtx, text, voiceName, speed);
+      if (onnxBuf) return onnxBuf;
+    } else if (provider === 'elevenlabs' && elevenLabsApiKey) {
       try {
         const vIdMap = {
           Adam: 'pNInz6obpgDQGcFmaJgB', Rachel: '21m00Tcm4TlvDq8ikWAM', Antoni: 'ErXwobaYiN019PkySvjV',
@@ -1102,34 +1283,34 @@
     const channel = buffer.getChannelData(0);
 
     const freqMap = {
-      Marcus: 104,
-      Arthur: 108,
-      Charon: 114,
-      Kabir: 118,
-      Jack: 122,
+      am_onyx: 104, Marcus: 104,
+      bm_daniel: 108, Arthur: 108,
+      am_adam: 114, Charon: 114,
+      hm_omega: 118, Kabir: 118,
+      bm_george: 122, Jack: 122,
       Orpheus: 125,
-      Oliver: 128,
-      Sam: 132,
-      Fenrir: 135,
-      Alex: 138,
-      Ethan: 142,
-      Arjun: 148,
+      bm_fable: 128, Oliver: 128,
+      am_echo: 132, Sam: 132,
+      am_fenrir: 135, Fenrir: 135,
+      am_eric: 138, Alex: 138,
+      am_michael: 142, Ethan: 142,
+      hm_psi: 148, Arjun: 148,
       Zayd: 152,
-      Liam: 156,
+      am_liam: 156, bm_lewis: 156, Liam: 156,
       Leo: 162,
-      Puck: 166,
-      Leda: 196,
-      Sophia: 204,
-      Lily: 210,
-      Aoede: 214,
-      Emma: 222,
-      Maya: 228,
-      Priya: 232,
-      Ananya: 236,
-      Ayesha: 238,
-      Mia: 242,
-      Kore: 246,
-      Chloe: 256,
+      am_puck: 166, Puck: 166,
+      af_nicole: 196, Leda: 196,
+      af_river: 204, Sophia: 204,
+      bf_alice: 210, bf_lily: 210, Lily: 210,
+      af_aoede: 214, Aoede: 214,
+      af_heart: 222, bf_emma: 222, Emma: 222,
+      af_sarah: 228, Maya: 228,
+      hf_alpha: 232, Priya: 232,
+      af_bella: 236, bf_isabella: 236, hf_beta: 236, Ananya: 236,
+      af_jessica: 238, Ayesha: 238,
+      af_nova: 242, Mia: 242,
+      af_kore: 246, Kore: 246,
+      af_sky: 256, Chloe: 256,
       Zephyr: 268
     };
 
@@ -1617,6 +1798,10 @@
     function openSettingsModal() {
       window.StarterAssets.playPopSound();
       document.getElementById('input-local-api-key').value = getLocalApiKey();
+      const kKey = document.getElementById('input-kokoro-key');
+      if (kKey) kKey.value = getKokoroApiKey();
+      const kUrl = document.getElementById('input-kokoro-url');
+      if (kUrl) kUrl.value = getKokoroApiUrl();
       const elKey = document.getElementById('input-elevenlabs-key');
       if (elKey) elKey.value = getElevenLabsApiKey();
       const oaiKey = document.getElementById('input-openai-key');
@@ -1636,6 +1821,10 @@
     document.getElementById('btn-save-settings').addEventListener('click', () => {
       window.StarterAssets.playPopSound(1.15);
       const geminiVal = (document.getElementById('input-local-api-key').value || '').trim();
+      const kKeyInp = document.getElementById('input-kokoro-key');
+      const kKeyVal = kKeyInp ? kKeyInp.value.trim() : '';
+      const kUrlInp = document.getElementById('input-kokoro-url');
+      const kUrlVal = kUrlInp ? kUrlInp.value.trim() : '';
       const elInp = document.getElementById('input-elevenlabs-key');
       const elVal = elInp ? elInp.value.trim() : '';
       const oaiInp = document.getElementById('input-openai-key');
@@ -1643,17 +1832,21 @@
 
       try {
         localStorage.setItem(API_KEY_STORAGE, geminiVal);
+        setKokoroApiKey(kKeyVal);
+        setKokoroApiUrl(kUrlVal);
         setElevenLabsApiKey(elVal);
         setOpenAiApiKey(oaiVal);
       } catch (_) {}
 
       callNativeBridge('saveApiKeys', {
         geminiApiKey: geminiVal,
+        kokoroApiKey: kKeyVal,
+        kokoroApiUrl: kUrlVal,
         elevenLabsApiKey: elVal,
         openAiApiKey: oaiVal
       }).catch(() => {});
 
-      updateProviderKeyBanner(settings.voiceProvider || 'builtin');
+      updateProviderKeyBanner(settings.voiceProvider || 'kokoro');
       document.getElementById('settings-modal').classList.add('hidden');
     });
 
@@ -1662,12 +1855,16 @@
       try {
         localStorage.removeItem(STORAGE_KEY);
         localStorage.removeItem(API_KEY_STORAGE);
+        localStorage.removeItem(KOKORO_KEY_STORAGE);
+        localStorage.removeItem(KOKORO_URL_STORAGE);
         localStorage.removeItem(ELEVENLABS_KEY_STORAGE);
         localStorage.removeItem(OPENAI_KEY_STORAGE);
       } catch (_) {}
 
       callNativeBridge('saveApiKeys', {
         geminiApiKey: '',
+        kokoroApiKey: '',
+        kokoroApiUrl: '',
         elevenLabsApiKey: '',
         openAiApiKey: ''
       }).catch(() => {});
@@ -1837,7 +2034,7 @@
     document.querySelectorAll('.voice-provider-pill').forEach((btn) => {
       btn.addEventListener('click', () => {
         window.StarterAssets.playPopSound(1.15);
-        const provider = btn.getAttribute('data-provider') || 'builtin';
+        const provider = btn.getAttribute('data-provider') || 'kokoro';
         settings.voiceProvider = provider;
         document.querySelectorAll('.voice-provider-pill').forEach((b) => {
           const match = b.getAttribute('data-provider') === provider;
@@ -1851,12 +2048,25 @@
       });
     });
 
+    const inlineKokoroSaveBtn = document.getElementById('btn-inline-save-kokoro');
+    if (inlineKokoroSaveBtn) {
+      inlineKokoroSaveBtn.addEventListener('click', () => {
+        window.StarterAssets.playPopSound(1.2);
+        const kKey = (document.getElementById('input-inline-kokoro-key').value || '').trim();
+        const kUrl = (document.getElementById('input-inline-kokoro-url').value || '').trim();
+        setKokoroApiKey(kKey);
+        setKokoroApiUrl(kUrl);
+        callNativeBridge('saveApiKeys', { kokoroApiKey: kKey, kokoroApiUrl: kUrl }).catch(() => {});
+        updateProviderKeyBanner('kokoro');
+      });
+    }
+
     const inlineSaveBtn = document.getElementById('btn-inline-save-provider-key');
     if (inlineSaveBtn) {
       inlineSaveBtn.addEventListener('click', () => {
         window.StarterAssets.playPopSound(1.2);
         const val = (document.getElementById('input-inline-provider-key').value || '').trim();
-        const provider = settings.voiceProvider || 'builtin';
+        const provider = settings.voiceProvider || 'kokoro';
         if (provider === 'elevenlabs') {
           setElevenLabsApiKey(val);
           callNativeBridge('saveApiKeys', { elevenLabsApiKey: val }).catch(() => {});
@@ -2223,9 +2433,11 @@
     callNativeBridge('getStoredApiKeys', {}).then((res) => {
       if (res && res.ok) {
         if (res.geminiApiKey && !getLocalApiKey()) localStorage.setItem(API_KEY_STORAGE, res.geminiApiKey);
+        if (res.kokoroApiKey && !getKokoroApiKey()) setKokoroApiKey(res.kokoroApiKey);
+        if (res.kokoroApiUrl && !getKokoroApiUrl()) setKokoroApiUrl(res.kokoroApiUrl);
         if (res.elevenLabsApiKey && !getElevenLabsApiKey()) setElevenLabsApiKey(res.elevenLabsApiKey);
         if (res.openAiApiKey && !getOpenAiApiKey()) setOpenAiApiKey(res.openAiApiKey);
-        updateProviderKeyBanner(settings.voiceProvider || 'builtin');
+        updateProviderKeyBanner(settings.voiceProvider || 'kokoro');
       }
     }).catch(() => {});
   });

@@ -298,9 +298,23 @@
             <button type="button" id="btn-quick-voice-api-key" class="btn-cartoon btn-white btn-sm" style="font-size:11px;padding:3px 8px;">🔑 Manage API Keys</button>
           </div>
           <div id="voice-provider-pills" class="pill-choice-row" style="flex-wrap:wrap;gap:6px;">
-            <button type="button" class="btn-cartoon btn-yellow btn-sm voice-provider-pill" data-provider="builtin">🏢 Built-in Studio</button>
-            <button type="button" class="btn-cartoon btn-white btn-sm voice-provider-pill" data-provider="elevenlabs">⚡ ElevenLabs AI (Ultra-Realistic)</button>
-            <button type="button" class="btn-cartoon btn-white btn-sm voice-provider-pill" data-provider="openai">🤖 OpenAI TTS Models</button>
+            <button type="button" class="btn-cartoon btn-yellow btn-sm voice-provider-pill" data-provider="kokoro">🦊 Kokoro-82M (hexgrad/kokoro)</button>
+            <button type="button" class="btn-cartoon btn-white btn-sm voice-provider-pill" data-provider="builtin">🏢 Built-in Studio</button>
+            <button type="button" class="btn-cartoon btn-white btn-sm voice-provider-pill" data-provider="elevenlabs">⚡ ElevenLabs AI</button>
+            <button type="button" class="btn-cartoon btn-white btn-sm voice-provider-pill" data-provider="openai">🤖 OpenAI TTS</button>
+          </div>
+
+          <!-- Kokoro-82M Engine Status & Optional API Box -->
+          <div id="kokoro-engine-banner" style="margin-top:10px;padding:8px 10px;background:#eefaf2;border:2px solid #2ab558;border-radius:10px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+              <span id="kokoro-engine-status" style="font-size:12px;font-weight:800;color:#0b6b2b;">🦊 hexgrad/Kokoro-82M Ready (Free On-Device Neural ONNX + Optional API)</span>
+            </div>
+            <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap;align-items:center;">
+              <input type="password" id="input-inline-kokoro-key" class="cartoon-input" style="font-size:11px;padding:4px 8px;height:30px;flex:1;min-width:140px;" placeholder="Optional HF / DeepInfra / Replicate Token..." />
+              <input type="text" id="input-inline-kokoro-url" class="cartoon-input" style="font-size:11px;padding:4px 8px;height:30px;flex:1;min-width:150px;" placeholder="Optional Kokoro FastAPI URL (e.g. http://...:8880)" />
+              <button type="button" id="btn-inline-save-kokoro" class="btn-cartoon btn-green btn-sm" style="font-size:11px;padding:4px 10px;">Save</button>
+            </div>
+            <div style="font-size:11px;margin-top:4px;color:#1b5e32;">✨ Runs <b>kokoro-js (Kokoro-82M-v1.0-ONNX)</b> directly with zero API key needed, or connects to your Kokoro API endpoint/token!</div>
           </div>
 
           <!-- Inline Provider Key Banner (when ElevenLabs or OpenAI selected) -->
@@ -842,6 +856,25 @@
         Manage your AI model API keys securely on this device. Use ElevenLabs or OpenAI for ultra-realistic studio voice synthesis!
       </p>
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:4px;">
+        <div style="background:#eefaf2;padding:8px;border-radius:10px;border:1.5px solid #2ab558;">
+          <label class="field-label" for="input-kokoro-key">🦊 hexgrad/Kokoro-82M Token &amp; Server (Optional)</label>
+          <input
+            id="input-kokoro-key"
+            type="password"
+            class="cartoon-input"
+            placeholder="Optional HuggingFace hf_... / DeepInfra / Replicate Key..."
+            autocomplete="off"
+            style="margin-bottom:6px;"
+          />
+          <input
+            id="input-kokoro-url"
+            type="text"
+            class="cartoon-input"
+            placeholder="Optional Kokoro-FastAPI URL (e.g. http://localhost:8880)"
+            autocomplete="off"
+          />
+          <small style="font-size:11px;color:#1b5e32;display:block;margin-top:3px;">Kokoro-82M runs free via local ONNX (`kokoro-js`) or via HuggingFace / DeepInfra / Kokoro-FastAPI.</small>
+        </div>
         <div>
           <label class="field-label" for="input-elevenlabs-key">⚡ ElevenLabs Voice API Key</label>
           <input

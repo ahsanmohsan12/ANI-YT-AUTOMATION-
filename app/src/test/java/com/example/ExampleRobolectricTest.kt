@@ -37,10 +37,14 @@ class ExampleRobolectricTest {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val prefs = context.getSharedPreferences("toontalk_native_prefs", Context.MODE_PRIVATE)
     prefs.edit()
+      .putString("kokoro_api_key", "test_kokoro_key")
+      .putString("kokoro_api_url", "http://localhost:8880")
       .putString("elevenlabs_api_key", "test_eleven_key")
       .putString("openai_api_key", "test_openai_key")
       .apply()
 
+    assertEquals("test_kokoro_key", prefs.getString("kokoro_api_key", ""))
+    assertEquals("http://localhost:8880", prefs.getString("kokoro_api_url", ""))
     assertEquals("test_eleven_key", prefs.getString("elevenlabs_api_key", ""))
     assertEquals("test_openai_key", prefs.getString("openai_api_key", ""))
   }

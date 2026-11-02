@@ -370,6 +370,12 @@ class ToonTalkAiBridge(
         if (req.has("openAiApiKey")) {
           prefs.putString("openai_api_key", req.getString("openAiApiKey").trim())
         }
+        if (req.has("kokoroApiKey")) {
+          prefs.putString("kokoro_api_key", req.getString("kokoroApiKey").trim())
+        }
+        if (req.has("kokoroApiUrl")) {
+          prefs.putString("kokoro_api_url", req.getString("kokoroApiUrl").trim())
+        }
         prefs.apply()
         sendCallbackToJs(callbackId, JSONObject().put("ok", true))
       } catch (e: Exception) {
@@ -386,6 +392,8 @@ class ToonTalkAiBridge(
         val geminiKey = prefs.getString("custom_gemini_api_key", "").orEmpty()
         val elevenLabsKey = prefs.getString("elevenlabs_api_key", "").orEmpty()
         val openAiKey = prefs.getString("openai_api_key", "").orEmpty()
+        val kokoroKey = prefs.getString("kokoro_api_key", "").orEmpty()
+        val kokoroUrl = prefs.getString("kokoro_api_url", "").orEmpty()
         sendCallbackToJs(
           callbackId,
           JSONObject()
@@ -393,6 +401,8 @@ class ToonTalkAiBridge(
             .put("geminiApiKey", geminiKey)
             .put("elevenLabsApiKey", elevenLabsKey)
             .put("openAiApiKey", openAiKey)
+            .put("kokoroApiKey", kokoroKey)
+            .put("kokoroApiUrl", kokoroUrl)
         )
       } catch (e: Exception) {
         sendCallbackToJs(callbackId, JSONObject().put("ok", false))
@@ -406,8 +416,8 @@ class ToonTalkAiBridge(
       try {
         val req = JSONObject(payloadJson)
         val text = req.optString("text", "Hello there!").trim()
-        val voiceName = req.optString("voiceName", "Alex")
-        val provider = req.optString("provider", "builtin").lowercase(Locale.ROOT)
+        val voiceName = req.optString("voiceName", "af_heart")
+        val provider = req.optString("provider", "kokoro").lowercase(Locale.ROOT)
         val language = req.optString("language", "English")
         val pitch = req.optDouble("pitch", 1.0).toFloat().coerceIn(0.6f, 1.6f)
         val speed = req.optDouble("speed", 1.0).toFloat().coerceIn(0.7f, 1.5f)
@@ -421,12 +431,26 @@ class ToonTalkAiBridge(
         if (openAiKeyPayload.isNotEmpty()) {
           prefs.edit().putString("openai_api_key", openAiKeyPayload).apply()
         }
+        val kokoroKeyPayload = req.optString("kokoroApiKey", "").trim()
+        if (kokoroKeyPayload.isNotEmpty()) {
+          prefs.edit().putString("kokoro_api_key", kokoroKeyPayload).apply()
+        }
+        val kokoroUrlPayload = req.optString("kokoroApiUrl", "").trim()
+        if (kokoroUrlPayload.isNotEmpty()) {
+          prefs.edit().putString("kokoro_api_url", kokoroUrlPayload).apply()
+        }
 
         val elevenLabsApiKey = elevenLabsKeyPayload.ifEmpty {
           prefs.getString("elevenlabs_api_key", "")?.trim().orEmpty()
         }
         val openAiApiKey = openAiKeyPayload.ifEmpty {
           prefs.getString("openai_api_key", "")?.trim().orEmpty()
+        }
+        val kokoroApiKey = kokoroKeyPayload.ifEmpty {
+          prefs.getString("kokoro_api_key", "")?.trim().orEmpty()
+        }
+        val kokoroApiUrl = kokoroUrlPayload.ifEmpty {
+          prefs.getString("kokoro_api_url", "")?.trim().orEmpty()
         }
         val payloadKey = req.optString("apiKey", "").trim()
         val customApiKey = payloadKey.ifEmpty {
@@ -437,8 +461,18 @@ class ToonTalkAiBridge(
         var audioMimeType = "audio/wav"
         var providerUsed = "Builtin"
 
+        // 0. hexgrad/Kokoro-82M Voice Models
+        if (provider == "kokoro") {
+          val (bytes, mime) = tryKokoroTts(kokoroApiKey, kokoroApiUrl, text, voiceName, speed)
+          if (bytes != null && bytes.isNotEmpty()) {
+            audioBytes = bytes
+            audioMimeType = mime
+            providerUsed = "Kokoro-82M"
+          }
+        }
+
         // 1. ElevenLabs Ultra-Realistic Voices
-        if (provider == "elevenlabs" && elevenLabsApiKey.isNotEmpty()) {
+        if (audioBytes == null && provider == "elevenlabs" && elevenLabsApiKey.isNotEmpty()) {
           val customVoiceId = req.optString("customVoiceId", "")
           val (bytes, mime) = tryElevenLabsTts(elevenLabsApiKey, text, voiceName, customVoiceId)
           if (bytes != null && bytes.isNotEmpty()) {
@@ -1031,6 +1065,103 @@ class ToonTalkAiBridge(
     return Pair(null, "audio/wav")
   }
 
+  private fun tryKokoroTts(
+    apiKey: String,
+    apiUrl: String,
+    text: String,
+    voiceName: String,
+    speed: Float
+  ): Pair<ByteArray?, String> {
+    val cleanVoice = if (voiceName.contains("_")) voiceName.trim() else "af_heart"
+
+    // 1. Custom Kokoro-FastAPI or OpenAI-compatible Kokoro Server (e.g. http://localhost:8880)
+    if (apiUrl.isNotEmpty()) {
+      try {
+        val baseUrl = apiUrl.trimEnd('/')
+        val endpoint = if (baseUrl.endsWith("/audio/speech")) baseUrl else "$baseUrl/v1/audio/speech"
+        val bodyJson = JSONObject().apply {
+          put("model", "kokoro")
+          put("input", text)
+          put("voice", cleanVoice)
+          put("speed", speed.coerceIn(0.5f, 2.0f).toDouble())
+          put("response_format", "mp3")
+        }
+        val reqBuilder = Request.Builder()
+          .url(endpoint)
+          .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
+        if (apiKey.isNotEmpty()) {
+          reqBuilder.addHeader("Authorization", "Bearer $apiKey")
+        }
+        okHttpClient.newCall(reqBuilder.build()).execute().use { response ->
+          if (response.isSuccessful) {
+            val bytes = response.body?.bytes()
+            if (bytes != null && bytes.size > 256) {
+              val contentType = response.header("Content-Type", "audio/mpeg") ?: "audio/mpeg"
+              return Pair(bytes, if (contentType.contains("wav")) "audio/wav" else "audio/mpeg")
+            }
+          }
+        }
+      } catch (e: Exception) {
+        Log.w(TAG, "Kokoro-FastAPI custom endpoint attempt failed, trying next", e)
+      }
+    }
+
+    // 2. DeepInfra & HuggingFace Inference API for hexgrad/Kokoro-82M
+    if (apiKey.isNotEmpty()) {
+      // Try DeepInfra OpenAI-compatible Kokoro-82M endpoint first
+      try {
+        val bodyJson = JSONObject().apply {
+          put("model", "hexgrad/Kokoro-82M")
+          put("input", text)
+          put("voice", cleanVoice)
+          put("speed", speed.coerceIn(0.5f, 2.0f).toDouble())
+          put("response_format", "mp3")
+        }
+        val req = Request.Builder()
+          .url("https://api.deepinfra.com/v1/openai/audio/speech")
+          .addHeader("Authorization", "Bearer $apiKey")
+          .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
+          .build()
+        okHttpClient.newCall(req).execute().use { response ->
+          if (response.isSuccessful) {
+            val bytes = response.body?.bytes()
+            if (bytes != null && bytes.size > 256) {
+              return Pair(bytes, "audio/mpeg")
+            }
+          }
+        }
+      } catch (e: Exception) {
+        Log.w(TAG, "DeepInfra Kokoro-82M attempt failed, trying HF Inference API", e)
+      }
+
+      // Try HuggingFace Inference API for hexgrad/Kokoro-82M
+      try {
+        val hfBody = JSONObject().apply {
+          put("inputs", text)
+          put("parameters", JSONObject().put("voice", cleanVoice))
+        }
+        val req = Request.Builder()
+          .url("https://api-inference.huggingface.co/models/hexgrad/Kokoro-82M")
+          .addHeader("Authorization", "Bearer $apiKey")
+          .post(hfBody.toString().toRequestBody("application/json".toMediaType()))
+          .build()
+        okHttpClient.newCall(req).execute().use { response ->
+          if (response.isSuccessful) {
+            val bytes = response.body?.bytes()
+            if (bytes != null && bytes.size > 256) {
+              val cType = response.header("Content-Type", "audio/flac") ?: "audio/flac"
+              return Pair(bytes, cType)
+            }
+          }
+        }
+      } catch (e: Exception) {
+        Log.w(TAG, "HuggingFace Kokoro-82M attempt failed", e)
+      }
+    }
+
+    return Pair(null, "audio/wav")
+  }
+
   private fun tryAndroidNativeTts(
     text: String,
     voiceName: String,
@@ -1043,19 +1174,52 @@ class ToonTalkAiBridge(
       val engine = ttsEngine ?: return null
       if (!ttsReady) return null
 
-      val isFemale = voiceName in setOf(
-        "Emma", "Chloe", "Maya", "Lily", "Priya", "Sophia", "Mia", "Ananya", "Ayesha", "Kore", "Aoede", "Zephyr", "Leda"
-      )
+      val isFemale = voiceName.startsWith("af_") || voiceName.startsWith("bf_") || voiceName.startsWith("hf_") ||
+        voiceName in setOf(
+          "Emma", "Chloe", "Maya", "Lily", "Priya", "Sophia", "Mia", "Ananya", "Ayesha", "Kore", "Aoede", "Zephyr", "Leda"
+        )
 
       val targetLocale = when {
-        voiceName in setOf("Oliver", "Lily", "Arthur", "Liam") -> Locale.UK
+        voiceName.startsWith("bf_") || voiceName.startsWith("bm_") || voiceName in setOf("Oliver", "Lily", "Arthur", "Liam") -> Locale.UK
         voiceName == "Mia" -> Locale("en", "AU")
-        language == "Hindi" || voiceName in setOf("Arjun", "Priya", "Kabir", "Ananya") -> Locale("hi", "IN")
+        voiceName.startsWith("hf_") || voiceName.startsWith("hm_") || language == "Hindi" || voiceName in setOf("Arjun", "Priya", "Kabir", "Ananya") -> Locale("hi", "IN")
         language == "Roman Urdu" || voiceName in setOf("Zayd", "Ayesha") -> Locale("ur", "PK")
         else -> Locale.US
       }
 
       val (basePitch, baseRate) = when (voiceName) {
+        // hexgrad/Kokoro-82M voices
+        "af_heart" -> Pair(1.12f, 1.04f)
+        "af_bella" -> Pair(1.16f, 1.06f)
+        "af_nicole" -> Pair(1.06f, 0.96f)
+        "af_sarah" -> Pair(1.10f, 1.04f)
+        "af_sky" -> Pair(1.22f, 1.12f)
+        "af_aoede" -> Pair(1.14f, 1.04f)
+        "af_kore" -> Pair(1.24f, 1.10f)
+        "af_nova" -> Pair(1.18f, 1.10f)
+        "af_jessica" -> Pair(1.15f, 1.06f)
+        "af_river" -> Pair(1.08f, 1.00f)
+        "am_adam" -> Pair(0.84f, 0.98f)
+        "am_michael" -> Pair(0.96f, 1.04f)
+        "am_fenrir" -> Pair(0.88f, 1.16f)
+        "am_puck" -> Pair(1.05f, 1.12f)
+        "am_echo" -> Pair(0.94f, 1.02f)
+        "am_eric" -> Pair(0.98f, 1.04f)
+        "am_liam" -> Pair(1.02f, 1.08f)
+        "am_onyx" -> Pair(0.78f, 0.95f)
+        "bf_emma" -> Pair(1.12f, 1.02f)
+        "bf_isabella" -> Pair(1.16f, 1.04f)
+        "bf_alice" -> Pair(1.10f, 1.02f)
+        "bf_lily" -> Pair(1.14f, 1.05f)
+        "bm_george" -> Pair(0.90f, 0.98f)
+        "bm_lewis" -> Pair(0.96f, 1.04f)
+        "bm_daniel" -> Pair(0.86f, 0.96f)
+        "bm_fable" -> Pair(0.94f, 1.02f)
+        "hf_alpha" -> Pair(1.14f, 1.04f)
+        "hf_beta" -> Pair(1.18f, 1.06f)
+        "hm_omega" -> Pair(0.92f, 1.02f)
+        "hm_psi" -> Pair(0.98f, 1.05f)
+        // Built-in Studio voices
         "Marcus" -> Pair(0.74f, 0.94f)
         "Arthur" -> Pair(0.76f, 0.95f)
         "Charon" -> Pair(0.78f, 0.98f)
@@ -1152,34 +1316,34 @@ class ToonTalkAiBridge(
     val wordCount = words.size.coerceAtLeast(1)
 
     val baseFreq = when (voiceName) {
-      "Marcus" -> 105.0
-      "Arthur" -> 108.0
-      "Charon" -> 115.0
-      "Kabir" -> 118.0
-      "Jack" -> 120.0
+      "am_onyx", "Marcus" -> 105.0
+      "bm_daniel", "Arthur" -> 108.0
+      "am_adam", "Charon" -> 115.0
+      "hm_omega", "Kabir" -> 118.0
+      "bm_george", "Jack" -> 122.0
       "Orpheus" -> 124.0
-      "Oliver" -> 128.0
-      "Sam" -> 132.0
-      "Fenrir" -> 135.0
-      "Ethan" -> 140.0
-      "Alex" -> 146.0
-      "Arjun" -> 150.0
-      "Liam" -> 155.0
+      "bm_fable", "Oliver" -> 128.0
+      "am_echo", "Sam" -> 132.0
+      "am_fenrir", "Fenrir" -> 135.0
+      "am_michael", "Ethan" -> 140.0
+      "am_eric", "Alex" -> 146.0
+      "hm_psi", "Arjun" -> 150.0
+      "am_liam", "bm_lewis", "Liam" -> 155.0
       "Zayd" -> 152.0
       "Leo" -> 162.0
-      "Puck" -> 168.0
-      "Leda" -> 195.0
-      "Sophia" -> 202.0
-      "Lily" -> 208.0
-      "Aoede" -> 215.0
-      "Emma" -> 222.0
-      "Maya" -> 228.0
-      "Priya" -> 232.0
-      "Ananya" -> 238.0
-      "Ayesha" -> 240.0
-      "Mia" -> 242.0
-      "Kore" -> 248.0
-      "Chloe" -> 258.0
+      "am_puck", "Puck" -> 168.0
+      "af_nicole", "Leda" -> 195.0
+      "af_river", "Sophia" -> 202.0
+      "bf_alice", "bf_lily", "Lily" -> 208.0
+      "af_aoede", "Aoede" -> 215.0
+      "af_heart", "bf_emma", "Emma" -> 222.0
+      "af_sarah", "Maya" -> 228.0
+      "hf_alpha", "Priya" -> 232.0
+      "af_bella", "bf_isabella", "hf_beta", "Ananya" -> 238.0
+      "af_jessica", "Ayesha" -> 240.0
+      "af_nova", "Mia" -> 242.0
+      "af_kore", "Kore" -> 248.0
+      "af_sky", "Chloe" -> 258.0
       "Zephyr" -> 272.0
       else -> 175.0
     } * userPitch.toDouble()
