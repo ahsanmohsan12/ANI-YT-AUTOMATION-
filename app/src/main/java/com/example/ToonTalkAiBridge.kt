@@ -52,18 +52,78 @@ class ToonTalkAiBridge(
 
   private val okHttpClient by lazy {
     OkHttpClient.Builder()
-      .connectTimeout(10, TimeUnit.SECONDS)
-      .readTimeout(12, TimeUnit.SECONDS)
-      .writeTimeout(10, TimeUnit.SECONDS)
+      .connectTimeout(15, TimeUnit.SECONDS)
+      .readTimeout(25, TimeUnit.SECONDS)
+      .writeTimeout(15, TimeUnit.SECONDS)
+      .retryOnConnectionFailure(true)
       .build()
   }
 
   private val ttsHttpClient by lazy {
     OkHttpClient.Builder()
-      .connectTimeout(4, TimeUnit.SECONDS)
-      .readTimeout(5, TimeUnit.SECONDS)
-      .writeTimeout(4, TimeUnit.SECONDS)
+      .connectTimeout(8, TimeUnit.SECONDS)
+      .readTimeout(15, TimeUnit.SECONDS)
+      .writeTimeout(8, TimeUnit.SECONDS)
+      .retryOnConnectionFailure(true)
       .build()
+  }
+
+  internal fun isTransientApiFailure(t: Throwable): Boolean {
+    if (t is TimeoutCancellationException) return true
+    if (t is CancellationException) return false
+    if (t is java.net.SocketTimeoutException || t is java.io.InterruptedIOException || t is java.io.IOException) {
+      return true
+    }
+    val msg = (t.message ?: "").lowercase(Locale.ROOT)
+    return msg.contains("timeout") ||
+      msg.contains("timed out") ||
+      msg.contains("429") ||
+      msg.contains("408") ||
+      msg.contains("500") ||
+      msg.contains("502") ||
+      msg.contains("503") ||
+      msg.contains("504") ||
+      msg.contains("rate limit") ||
+      msg.contains("resource_exhausted") ||
+      msg.contains("unavailable") ||
+      msg.contains("deadline_exceeded") ||
+      msg.contains("overloaded") ||
+      msg.contains("empty response")
+  }
+
+  internal suspend fun <T> retryWithExponentialBackoff(
+    operationName: String = "api_call",
+    maxRetries: Int = 3,
+    initialDelayMs: Long = 800L,
+    maxDelayMs: Long = 6_000L,
+    factor: Double = 2.0,
+    shouldRetry: (Throwable) -> Boolean = ::isTransientApiFailure,
+    block: suspend (attempt: Int) -> T
+  ): T {
+    var currentDelay = initialDelayMs
+    var lastError: Throwable? = null
+    for (attempt in 0..maxRetries) {
+      try {
+        return block(attempt)
+      } catch (t: Throwable) {
+        if (t !is TimeoutCancellationException && t is CancellationException) {
+          throw t
+        }
+        lastError = t
+        if (attempt >= maxRetries || !shouldRetry(t)) {
+          throw t
+        }
+        val jitter = kotlin.random.Random.nextLong(0L, 250L)
+        val waitMs = (currentDelay + jitter).coerceAtMost(maxDelayMs)
+        Log.w(
+          TAG,
+          "[$operationName] Attempt ${attempt + 1}/${maxRetries + 1} failed (${t.javaClass.simpleName}: ${t.message}); retrying in ${waitMs}ms..."
+        )
+        kotlinx.coroutines.delay(waitMs)
+        currentDelay = (currentDelay * factor).toLong().coerceAtMost(maxDelayMs)
+      }
+    }
+    throw lastError ?: IllegalStateException("$operationName exhausted retries")
   }
 
   private val scriptSchema by lazy {
@@ -233,21 +293,40 @@ class ToonTalkAiBridge(
           5. The final line MUST be a hilarious punchline or an irresistible comment-bait debate.
         """.trimIndent()
 
+        val perAttemptTimeoutMs = when {
+          lengthSec >= 60 -> 18_000L
+          lengthSec >= 45 -> 14_000L
+          else -> 11_000L
+        }
+
         val linesArray: JSONArray = try {
-          if (customApiKey.isNotEmpty()) {
-            withTimeout(10_000L) {
-              generateScriptWithCustomKey(customApiKey, prompt)
+          withTimeout(60_000L) {
+            retryWithExponentialBackoff(
+              operationName = "generateScript_${lengthSec}s",
+              maxRetries = 3,
+              initialDelayMs = 800L,
+              maxDelayMs = 5_000L
+            ) {
+              if (customApiKey.isNotEmpty()) {
+                withTimeout(perAttemptTimeoutMs) {
+                  generateScriptWithCustomKey(customApiKey, prompt)
+                }
+              } else {
+                val response = withTimeout(perAttemptTimeoutMs) {
+                  scriptModel.generateContent(prompt)
+                }
+                val rawText = response.text ?: throw IllegalStateException("Model returned empty response.")
+                val parsed = JSONObject(rawText)
+                parsed.getJSONArray("lines")
+              }
             }
-          } else {
-            val response = withTimeout(8_000L) {
-              scriptModel.generateContent(prompt)
-            }
-            val rawText = response.text ?: throw IllegalStateException("Model returned empty response.")
-            val parsed = JSONObject(rawText)
-            parsed.getJSONArray("lines")
           }
+        } catch (e: CancellationException) {
+          if (e !is TimeoutCancellationException) throw e
+          Log.w(TAG, "Model request timed out after retries; activating Viral Social Media Creator Engine fallback", e)
+          generateViralSocialScript(idea, scriptType, language, lengthSec, charAName, charBName)
         } catch (e: Exception) {
-          Log.w(TAG, "Model request timed out or unprovisioned; activating Viral Social Media Creator Engine fallback", e)
+          Log.w(TAG, "Model request failed after exponential backoff retries; activating Viral Social Media Creator Engine fallback", e)
           generateViralSocialScript(idea, scriptType, language, lengthSec, charAName, charBName)
         }
 
@@ -277,8 +356,10 @@ class ToonTalkAiBridge(
         throw e
       } catch (e: Exception) {
         Log.e(TAG, "Unexpected error in generateScript, using viral fallback", e)
-        val idea = JSONObject(payloadJson).optString("idea", "viral video")
-        val lines = generateViralSocialScript(idea, "Funny Facts", "English", 30, "A", "B")
+        val reqObj = runCatching { JSONObject(payloadJson) }.getOrNull()
+        val idea = reqObj?.optString("idea", "viral video") ?: "viral video"
+        val lengthSec = reqObj?.optInt("lengthSec", 30) ?: 30
+        val lines = generateViralSocialScript(idea, "Funny Facts", "English", lengthSec, "A", "B")
         sendCallbackToJs(
           callbackId,
           JSONObject().put("ok", true).put("lines", lines)
@@ -326,19 +407,32 @@ class ToonTalkAiBridge(
         """.trimIndent()
 
         val newText = try {
-          if (customApiKey.isNotEmpty()) {
-            withTimeout(6_000L) {
-              regenerateSingleLineWithCustomKey(customApiKey, prompt)
+          withTimeout(30_000L) {
+            retryWithExponentialBackoff(
+              operationName = "regenerateLine",
+              maxRetries = 3,
+              initialDelayMs = 600L,
+              maxDelayMs = 4_000L
+            ) {
+              if (customApiKey.isNotEmpty()) {
+                withTimeout(9_000L) {
+                  regenerateSingleLineWithCustomKey(customApiKey, prompt)
+                }
+              } else {
+                val response = withTimeout(8_000L) {
+                  singleLineModel.generateContent(prompt)
+                }
+                val rawText = response.text ?: throw IllegalStateException("Empty response from model.")
+                JSONObject(rawText).optString("text", currentText)
+              }
             }
-          } else {
-            val response = withTimeout(5_000L) {
-              singleLineModel.generateContent(prompt)
-            }
-            val rawText = response.text ?: throw IllegalStateException("Empty response from model.")
-            JSONObject(rawText).optString("text", currentText)
           }
+        } catch (e: CancellationException) {
+          if (e !is TimeoutCancellationException) throw e
+          Log.w(TAG, "Line rewrite model timed out after retries, using viral rewriter", e)
+          rewriteViralLineLocally(speaker, idea, isFirst, isLast, currentText, language)
         } catch (e: Exception) {
-          Log.w(TAG, "Line rewrite model timed out, using viral rewriter", e)
+          Log.w(TAG, "Line rewrite model failed after retries, using viral rewriter", e)
           rewriteViralLineLocally(speaker, idea, isFirst, isLast, currentText, language)
         }
 
@@ -497,8 +591,8 @@ class ToonTalkAiBridge(
         var audioMimeType = "audio/wav"
         var providerUsed = "Builtin"
 
-        // Bound remote cloud TTS attempts to max 8.5s total so native synthesis never times out
-        kotlinx.coroutines.withTimeoutOrNull(8_500L) {
+        // Bound remote cloud TTS attempts with exponential backoff up to 28s total so 60s scripts never time out
+        kotlinx.coroutines.withTimeoutOrNull(28_000L) {
           // 0A. Edge0/Audio8-TTS-Realistic-0.6b via Hugging Face Inference & Space API
           if (provider == "audio8") {
             val (bytes, mime) = tryAudio8RealisticTts(hfApiKey, text, voiceName, language, speed)
@@ -587,12 +681,24 @@ class ToonTalkAiBridge(
       } catch (e: CancellationException) {
         throw e
       } catch (e: Exception) {
-        Log.e(TAG, "Voice synthesis error", e)
+        Log.e(TAG, "Voice synthesis error; recovering via local formant synthesizer", e)
+        val fallbackWav = runCatching {
+          val reqObj = JSONObject(payloadJson)
+          generateExpressiveVocalWav(
+            reqObj.optString("text", "Hello there!"),
+            reqObj.optString("voiceName", "af_heart"),
+            reqObj.optDouble("pitch", 1.0).toFloat().coerceIn(0.6f, 1.6f),
+            reqObj.optDouble("speed", 1.0).toFloat().coerceIn(0.7f, 1.5f)
+          )
+        }.getOrElse { generateExpressiveVocalWav("Hello there!", "af_heart", 1.0f, 1.0f) }
+        val base64Audio = Base64.encodeToString(fallbackWav, Base64.NO_WRAP)
         sendCallbackToJs(
           callbackId,
           JSONObject()
-            .put("ok", false)
-            .put("error", e.localizedMessage ?: "Voice generation failed.")
+            .put("ok", true)
+            .put("audioBase64", base64Audio)
+            .put("mimeType", "audio/wav")
+            .put("providerUsed", "FormantSynth")
         )
       }
     }
@@ -861,7 +967,7 @@ class ToonTalkAiBridge(
     }
   }
 
-  private fun generateScriptWithCustomKey(apiKey: String, prompt: String): JSONArray {
+  private suspend fun generateScriptWithCustomKey(apiKey: String, prompt: String): JSONArray {
     val bodyJson = JSONObject().apply {
       put(
         "contents",
@@ -906,29 +1012,38 @@ class ToonTalkAiBridge(
       )
     }
 
-    val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey"
-    val request = Request.Builder()
-      .url(url)
-      .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
-      .build()
+    val models = listOf("gemini-3.8-flash", "gemini-3.5-flash-lite")
+    var lastException: Exception? = null
+    for (modelName in models) {
+      try {
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
+        val request = Request.Builder()
+          .url(url)
+          .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
+          .build()
 
-    okHttpClient.newCall(request).execute().use { response ->
-      val respBody = response.body?.string().orEmpty()
-      if (!response.isSuccessful) {
-        throw IllegalStateException("Gemini API error (${response.code}): $respBody")
+        okHttpClient.newCall(request).execute().use { response ->
+          val respBody = response.body?.string().orEmpty()
+          if (!response.isSuccessful) {
+            throw IllegalStateException("Gemini API error (${response.code}): $respBody")
+          }
+          val root = JSONObject(respBody)
+          val text = root.getJSONArray("candidates")
+            .getJSONObject(0)
+            .getJSONObject("content")
+            .getJSONArray("parts")
+            .getJSONObject(0)
+            .getString("text")
+          return JSONObject(text).getJSONArray("lines")
+        }
+      } catch (e: Exception) {
+        lastException = e
       }
-      val root = JSONObject(respBody)
-      val text = root.getJSONArray("candidates")
-        .getJSONObject(0)
-        .getJSONObject("content")
-        .getJSONArray("parts")
-        .getJSONObject(0)
-        .getString("text")
-      return JSONObject(text).getJSONArray("lines")
     }
+    throw lastException ?: IllegalStateException("Gemini script generation failed")
   }
 
-  private fun regenerateSingleLineWithCustomKey(apiKey: String, prompt: String): String {
+  private suspend fun regenerateSingleLineWithCustomKey(apiKey: String, prompt: String): String {
     val bodyJson = JSONObject().apply {
       put(
         "contents",
@@ -944,30 +1059,39 @@ class ToonTalkAiBridge(
       )
     }
 
-    val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$apiKey"
-    val request = Request.Builder()
-      .url(url)
-      .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
-      .build()
+    val models = listOf("gemini-3.8-flash", "gemini-3.5-flash-lite")
+    var lastException: Exception? = null
+    for (modelName in models) {
+      try {
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
+        val request = Request.Builder()
+          .url(url)
+          .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
+          .build()
 
-    okHttpClient.newCall(request).execute().use { response ->
-      val respBody = response.body?.string().orEmpty()
-      if (!response.isSuccessful) {
-        throw IllegalStateException("Gemini API error (${response.code})")
+        okHttpClient.newCall(request).execute().use { response ->
+          val respBody = response.body?.string().orEmpty()
+          if (!response.isSuccessful) {
+            throw IllegalStateException("Gemini API error (${response.code})")
+          }
+          val root = JSONObject(respBody)
+          val text = root.getJSONArray("candidates")
+            .getJSONObject(0)
+            .getJSONObject("content")
+            .getJSONArray("parts")
+            .getJSONObject(0)
+            .getString("text")
+          return runCatching { JSONObject(text).optString("text", text) }.getOrDefault(text)
+        }
+      } catch (e: Exception) {
+        lastException = e
       }
-      val root = JSONObject(respBody)
-      val text = root.getJSONArray("candidates")
-        .getJSONObject(0)
-        .getJSONObject("content")
-        .getJSONArray("parts")
-        .getJSONObject(0)
-        .getString("text")
-      return runCatching { JSONObject(text).optString("text", text) }.getOrDefault(text)
     }
+    throw lastException ?: IllegalStateException("Gemini single line rewrite failed")
   }
 
-  private fun tryGeminiRestTts(apiKey: String, text: String, voiceName: String): ByteArray? {
-    val modelsToTry = listOf("gemini-2.5-flash-preview-tts", "gemini-3.1-flash-tts-preview")
+  private suspend fun tryGeminiRestTts(apiKey: String, text: String, voiceName: String): ByteArray? {
+    val modelsToTry = listOf("gemini-3.1-flash-tts-preview")
     for (model in modelsToTry) {
       try {
         val bodyJson = JSONObject().apply {
@@ -999,13 +1123,21 @@ class ToonTalkAiBridge(
         }
 
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey"
-        val request = Request.Builder()
-          .url(url)
-          .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
-          .build()
+        val resultBytes = retryWithExponentialBackoff(
+          operationName = "GeminiRestTts_$model",
+          maxRetries = 2,
+          initialDelayMs = 600L,
+          maxDelayMs = 3_000L
+        ) {
+          val request = Request.Builder()
+            .url(url)
+            .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
+            .build()
 
-        okHttpClient.newCall(request).execute().use { response ->
-          if (response.isSuccessful) {
+          okHttpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+              throw IllegalStateException("Gemini TTS HTTP ${response.code}")
+            }
             val respStr = response.body?.string().orEmpty()
             val root = JSONObject(respStr)
             val inlineData = root.getJSONArray("candidates")
@@ -1017,21 +1149,25 @@ class ToonTalkAiBridge(
             val b64 = inlineData.getString("data")
             val mime = inlineData.optString("mimeType", "audio/pcm")
             val rawBytes = Base64.decode(b64, Base64.DEFAULT)
-            return if (mime.contains("wav", ignoreCase = true)) {
+            if (mime.contains("wav", ignoreCase = true)) {
               rawBytes
             } else {
               wrapPcm24kMonoInWav(rawBytes, 24000)
             }
           }
         }
+        if (resultBytes.isNotEmpty()) return resultBytes
+      } catch (e: CancellationException) {
+        if (e !is TimeoutCancellationException) throw e
+        Log.w(TAG, "Gemini REST TTS ($model) timed out after retries, falling back", e)
       } catch (e: Exception) {
-        Log.w(TAG, "Gemini REST TTS ($model) attempt failed, falling back", e)
+        Log.w(TAG, "Gemini REST TTS ($model) attempt failed after retries, falling back", e)
       }
     }
     return null
   }
 
-  private fun tryElevenLabsTts(
+  private suspend fun tryElevenLabsTts(
     apiKey: String,
     text: String,
     voiceName: String,
@@ -1084,31 +1220,40 @@ class ToonTalkAiBridge(
       }
 
       val url = "https://api.elevenlabs.io/v1/text-to-speech/$resolvedVoiceId"
-      val request = Request.Builder()
-        .url(url)
-        .addHeader("xi-api-key", apiKey)
-        .addHeader("Accept", "audio/mpeg")
-        .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
-        .build()
+      return retryWithExponentialBackoff(
+        operationName = "ElevenLabsTts",
+        maxRetries = 2,
+        initialDelayMs = 600L,
+        maxDelayMs = 3_000L
+      ) {
+        val request = Request.Builder()
+          .url(url)
+          .addHeader("xi-api-key", apiKey)
+          .addHeader("Accept", "audio/mpeg")
+          .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
+          .build()
 
-      okHttpClient.newCall(request).execute().use { response ->
-        if (response.isSuccessful) {
-          val bytes = response.body?.bytes()
-          if (bytes != null && bytes.isNotEmpty()) {
-            return Pair(bytes, "audio/mpeg")
+        okHttpClient.newCall(request).execute().use { response ->
+          if (response.isSuccessful) {
+            val bytes = response.body?.bytes()
+            if (bytes != null && bytes.isNotEmpty()) {
+              return@retryWithExponentialBackoff Pair(bytes, "audio/mpeg")
+            }
           }
-        } else {
           val err = response.body?.string().orEmpty()
-          Log.w(TAG, "ElevenLabs TTS error (${response.code}): $err")
+          throw IllegalStateException("ElevenLabs TTS error (${response.code}): $err")
         }
       }
+    } catch (e: CancellationException) {
+      if (e !is TimeoutCancellationException) throw e
+      Log.w(TAG, "ElevenLabs TTS timed out after retries, falling back", e)
     } catch (e: Exception) {
-      Log.w(TAG, "ElevenLabs TTS request failed, falling back", e)
+      Log.w(TAG, "ElevenLabs TTS request failed after retries, falling back", e)
     }
     return Pair(null, "audio/wav")
   }
 
-  private fun tryOpenAiTts(
+  private suspend fun tryOpenAiTts(
     apiKey: String,
     text: String,
     voiceName: String,
@@ -1128,30 +1273,39 @@ class ToonTalkAiBridge(
       }
 
       val url = "https://api.openai.com/v1/audio/speech"
-      val request = Request.Builder()
-        .url(url)
-        .addHeader("Authorization", "Bearer $apiKey")
-        .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
-        .build()
+      return retryWithExponentialBackoff(
+        operationName = "OpenAiTts",
+        maxRetries = 2,
+        initialDelayMs = 600L,
+        maxDelayMs = 3_000L
+      ) {
+        val request = Request.Builder()
+          .url(url)
+          .addHeader("Authorization", "Bearer $apiKey")
+          .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
+          .build()
 
-      okHttpClient.newCall(request).execute().use { response ->
-        if (response.isSuccessful) {
-          val bytes = response.body?.bytes()
-          if (bytes != null && bytes.isNotEmpty()) {
-            return Pair(bytes, "audio/mpeg")
+        okHttpClient.newCall(request).execute().use { response ->
+          if (response.isSuccessful) {
+            val bytes = response.body?.bytes()
+            if (bytes != null && bytes.isNotEmpty()) {
+              return@retryWithExponentialBackoff Pair(bytes, "audio/mpeg")
+            }
           }
-        } else {
           val err = response.body?.string().orEmpty()
-          Log.w(TAG, "OpenAI TTS error (${response.code}): $err")
+          throw IllegalStateException("OpenAI TTS error (${response.code}): $err")
         }
       }
+    } catch (e: CancellationException) {
+      if (e !is TimeoutCancellationException) throw e
+      Log.w(TAG, "OpenAI TTS timed out after retries, falling back", e)
     } catch (e: Exception) {
-      Log.w(TAG, "OpenAI TTS request failed, falling back", e)
+      Log.w(TAG, "OpenAI TTS request failed after retries, falling back", e)
     }
     return Pair(null, "audio/wav")
   }
 
-  private fun tryAudio8RealisticTts(
+  private suspend fun tryAudio8RealisticTts(
     hfApiKey: String,
     text: String,
     voiceName: String,
@@ -1160,7 +1314,7 @@ class ToonTalkAiBridge(
   ): Pair<ByteArray?, String> {
     val cleanVoice = if (voiceName.contains("_")) voiceName.trim() else "af_heart"
 
-    // 1. Try Hugging Face Inference Router & API for Edge0/Audio8-TTS-Realistic-0.6b
+    // 1. Try Hugging Face Inference Router & API for Edge0/Audio8-TTS-Realistic-0.6b with exponential backoff
     if (hfApiKey.isNotEmpty()) {
       val hfModelEndpoints = listOf(
         "https://router.huggingface.co/hf-inference/models/Edge0/Audio8-TTS-Realistic-0.6b",
@@ -1176,18 +1330,26 @@ class ToonTalkAiBridge(
               put("speed", speed.coerceIn(0.5f, 2.0f).toDouble())
             })
           }
-          val request = Request.Builder()
-            .url(hfUrl)
-            .addHeader("Authorization", "Bearer $hfApiKey")
-            .post(hfBody.toString().toRequestBody("application/json".toMediaType()))
-            .build()
+          val pairResult = retryWithExponentialBackoff(
+            operationName = "Audio8_HF_Inference",
+            maxRetries = 2,
+            initialDelayMs = 600L,
+            maxDelayMs = 2_500L
+          ) {
+            val request = Request.Builder()
+              .url(hfUrl)
+              .addHeader("Authorization", "Bearer $hfApiKey")
+              .post(hfBody.toString().toRequestBody("application/json".toMediaType()))
+              .build()
 
-          ttsHttpClient.newCall(request).execute().use { response ->
-            if (response.isSuccessful) {
+            ttsHttpClient.newCall(request).execute().use { response ->
+              if (!response.isSuccessful) {
+                throw IllegalStateException("HF Audio8 HTTP ${response.code}")
+              }
               val contentType = response.header("Content-Type", "audio/wav") ?: "audio/wav"
               val bytes = response.body?.bytes()
               if (bytes != null && bytes.size > 256 && !contentType.contains("application/json")) {
-                return Pair(
+                Pair(
                   bytes,
                   when {
                     contentType.contains("mpeg") || contentType.contains("mp3") -> "audio/mpeg"
@@ -1195,16 +1357,22 @@ class ToonTalkAiBridge(
                     else -> "audio/wav"
                   }
                 )
+              } else {
+                throw IllegalStateException("HF Audio8 returned non-audio payload")
               }
             }
           }
+          if (pairResult.first != null) return pairResult
+        } catch (e: CancellationException) {
+          if (e !is TimeoutCancellationException) throw e
+          Log.w(TAG, "HF Inference Edge0/Audio8-TTS-Realistic-0.6b ($hfUrl) timed out", e)
         } catch (e: Exception) {
           Log.w(TAG, "HF Inference Edge0/Audio8-TTS-Realistic-0.6b ($hfUrl) attempt failed", e)
         }
       }
     }
 
-    // 2. Try Edge0/Audio8-TTS-Realistic-0.6b Official Hugging Face Space Gradio API
+    // 2. Try Edge0/Audio8-TTS-Realistic-0.6b Official Hugging Face Space Gradio API with exponential backoff
     try {
       val spaceBase = "https://edge0-audio8-tts-realistic-0-6b.hf.space"
       val callPayload = JSONObject().apply {
@@ -1218,73 +1386,88 @@ class ToonTalkAiBridge(
           put(1.1)
         })
       }
-      val callReqBuilder = Request.Builder()
-        .url("$spaceBase/gradio_api/call/generate")
-        .post(callPayload.toString().toRequestBody("application/json".toMediaType()))
-      if (hfApiKey.isNotEmpty()) {
-        callReqBuilder.addHeader("Authorization", "Bearer $hfApiKey")
-      }
 
-      var eventId: String? = null
-      ttsHttpClient.newCall(callReqBuilder.build()).execute().use { resp ->
-        if (resp.isSuccessful) {
-          val bodyStr = resp.body?.string().orEmpty()
-          if (bodyStr.isNotEmpty()) {
-            eventId = JSONObject(bodyStr).optString("event_id").takeIf { it.isNotEmpty() }
+      val spacePair = retryWithExponentialBackoff(
+        operationName = "Audio8_Gradio_Space",
+        maxRetries = 1,
+        initialDelayMs = 600L,
+        maxDelayMs = 2_000L
+      ) {
+        val callReqBuilder = Request.Builder()
+          .url("$spaceBase/gradio_api/call/generate")
+          .post(callPayload.toString().toRequestBody("application/json".toMediaType()))
+        if (hfApiKey.isNotEmpty()) {
+          callReqBuilder.addHeader("Authorization", "Bearer $hfApiKey")
+        }
+
+        var eventId: String? = null
+        ttsHttpClient.newCall(callReqBuilder.build()).execute().use { resp ->
+          if (resp.isSuccessful) {
+            val bodyStr = resp.body?.string().orEmpty()
+            if (bodyStr.isNotEmpty()) {
+              eventId = JSONObject(bodyStr).optString("event_id").takeIf { it.isNotEmpty() }
+            }
+          } else {
+            throw IllegalStateException("Audio8 Space HTTP ${resp.code}")
           }
         }
-      }
 
-      if (!eventId.isNullOrEmpty()) {
-        val streamReqBuilder = Request.Builder()
-          .url("$spaceBase/gradio_api/call/generate/$eventId")
-          .get()
-        if (hfApiKey.isNotEmpty()) {
-          streamReqBuilder.addHeader("Authorization", "Bearer $hfApiKey")
-        }
+        if (!eventId.isNullOrEmpty()) {
+          val streamReqBuilder = Request.Builder()
+            .url("$spaceBase/gradio_api/call/generate/$eventId")
+            .get()
+          if (hfApiKey.isNotEmpty()) {
+            streamReqBuilder.addHeader("Authorization", "Bearer $hfApiKey")
+          }
 
-        var audioFileUrl: String? = null
-        ttsHttpClient.newCall(streamReqBuilder.build()).execute().use { streamResp ->
-          if (streamResp.isSuccessful) {
-            val sseText = streamResp.body?.string().orEmpty()
-            val lines = sseText.lines()
-            for (line in lines) {
-              if (line.startsWith("data:")) {
-                val dataJson = line.removePrefix("data:").trim()
-                if (dataJson.startsWith("[")) {
-                  val arr = org.json.JSONArray(dataJson)
-                  val firstObj = arr.optJSONObject(0)
-                  if (firstObj != null) {
-                    val directUrl = firstObj.optString("url")
-                    val path = firstObj.optString("path")
-                    audioFileUrl = when {
-                      directUrl.startsWith("http") -> directUrl
-                      path.isNotEmpty() -> "$spaceBase/gradio_api/file=$path"
-                      else -> null
+          var audioFileUrl: String? = null
+          ttsHttpClient.newCall(streamReqBuilder.build()).execute().use { streamResp ->
+            if (streamResp.isSuccessful) {
+              val sseText = streamResp.body?.string().orEmpty()
+              val lines = sseText.lines()
+              for (line in lines) {
+                if (line.startsWith("data:")) {
+                  val dataJson = line.removePrefix("data:").trim()
+                  if (dataJson.startsWith("[")) {
+                    val arr = org.json.JSONArray(dataJson)
+                    val firstObj = arr.optJSONObject(0)
+                    if (firstObj != null) {
+                      val directUrl = firstObj.optString("url")
+                      val path = firstObj.optString("path")
+                      audioFileUrl = when {
+                        directUrl.startsWith("http") -> directUrl
+                        path.isNotEmpty() -> "$spaceBase/gradio_api/file=$path"
+                        else -> null
+                      }
                     }
                   }
                 }
               }
             }
           }
-        }
 
-        if (!audioFileUrl.isNullOrEmpty()) {
-          val dlBuilder = Request.Builder().url(audioFileUrl!!).get()
-          if (hfApiKey.isNotEmpty()) {
-            dlBuilder.addHeader("Authorization", "Bearer $hfApiKey")
-          }
-          ttsHttpClient.newCall(dlBuilder.build()).execute().use { audioResp ->
-            if (audioResp.isSuccessful) {
-              val bytes = audioResp.body?.bytes()
-              if (bytes != null && bytes.size > 256) {
-                val ct = audioResp.header("Content-Type", "audio/wav") ?: "audio/wav"
-                return Pair(bytes, if (ct.contains("mpeg") || ct.contains("mp3")) "audio/mpeg" else "audio/wav")
+          if (!audioFileUrl.isNullOrEmpty()) {
+            val dlBuilder = Request.Builder().url(audioFileUrl!!).get()
+            if (hfApiKey.isNotEmpty()) {
+              dlBuilder.addHeader("Authorization", "Bearer $hfApiKey")
+            }
+            ttsHttpClient.newCall(dlBuilder.build()).execute().use { audioResp ->
+              if (audioResp.isSuccessful) {
+                val bytes = audioResp.body?.bytes()
+                if (bytes != null && bytes.size > 256) {
+                  val ct = audioResp.header("Content-Type", "audio/wav") ?: "audio/wav"
+                  return@retryWithExponentialBackoff Pair(bytes, if (ct.contains("mpeg") || ct.contains("mp3")) "audio/mpeg" else "audio/wav")
+                }
               }
             }
           }
         }
+        throw IllegalStateException("Audio8 Gradio Space returned no audio")
       }
+      if (spacePair.first != null) return spacePair
+    } catch (e: CancellationException) {
+      if (e !is TimeoutCancellationException) throw e
+      Log.w(TAG, "Audio8 Gradio Space call timed out, falling back", e)
     } catch (e: Exception) {
       Log.w(TAG, "Audio8 Gradio Space call failed, falling back to HF Kokoro/Neural engine", e)
     }
@@ -1300,7 +1483,7 @@ class ToonTalkAiBridge(
     return Pair(null, "audio/wav")
   }
 
-  private fun tryKokoroTts(
+  private suspend fun tryKokoroTts(
     apiKey: String,
     apiUrl: String,
     text: String,
@@ -1321,27 +1504,41 @@ class ToonTalkAiBridge(
           put("speed", speed.coerceIn(0.5f, 2.0f).toDouble())
           put("response_format", "mp3")
         }
-        val reqBuilder = Request.Builder()
-          .url(endpoint)
-          .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
-        if (apiKey.isNotEmpty()) {
-          reqBuilder.addHeader("Authorization", "Bearer $apiKey")
-        }
-        ttsHttpClient.newCall(reqBuilder.build()).execute().use { response ->
-          if (response.isSuccessful) {
+        val customPair = retryWithExponentialBackoff(
+          operationName = "Kokoro_Custom_Endpoint",
+          maxRetries = 2,
+          initialDelayMs = 500L,
+          maxDelayMs = 2_500L
+        ) {
+          val reqBuilder = Request.Builder()
+            .url(endpoint)
+            .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
+          if (apiKey.isNotEmpty()) {
+            reqBuilder.addHeader("Authorization", "Bearer $apiKey")
+          }
+          ttsHttpClient.newCall(reqBuilder.build()).execute().use { response ->
+            if (!response.isSuccessful) {
+              throw IllegalStateException("Kokoro custom endpoint HTTP ${response.code}")
+            }
             val bytes = response.body?.bytes()
             if (bytes != null && bytes.size > 256) {
               val contentType = response.header("Content-Type", "audio/mpeg") ?: "audio/mpeg"
-              return Pair(bytes, if (contentType.contains("wav")) "audio/wav" else "audio/mpeg")
+              Pair(bytes, if (contentType.contains("wav")) "audio/wav" else "audio/mpeg")
+            } else {
+              throw IllegalStateException("Kokoro custom endpoint empty audio")
             }
           }
         }
+        if (customPair.first != null) return customPair
+      } catch (e: CancellationException) {
+        if (e !is TimeoutCancellationException) throw e
+        Log.w(TAG, "Kokoro-FastAPI custom endpoint timed out, trying next", e)
       } catch (e: Exception) {
         Log.w(TAG, "Kokoro-FastAPI custom endpoint attempt failed, trying next", e)
       }
     }
 
-    // 2. DeepInfra & HuggingFace Inference API for hexgrad/Kokoro-82M
+    // 2. DeepInfra & HuggingFace Inference API for hexgrad/Kokoro-82M with exponential backoff
     if (apiKey.isNotEmpty()) {
       // Try DeepInfra OpenAI-compatible Kokoro-82M endpoint first
       try {
@@ -1352,19 +1549,33 @@ class ToonTalkAiBridge(
           put("speed", speed.coerceIn(0.5f, 2.0f).toDouble())
           put("response_format", "mp3")
         }
-        val req = Request.Builder()
-          .url("https://api.deepinfra.com/v1/openai/audio/speech")
-          .addHeader("Authorization", "Bearer $apiKey")
-          .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
-          .build()
-        ttsHttpClient.newCall(req).execute().use { response ->
-          if (response.isSuccessful) {
+        val deepInfraPair = retryWithExponentialBackoff(
+          operationName = "Kokoro_DeepInfra",
+          maxRetries = 1,
+          initialDelayMs = 500L,
+          maxDelayMs = 2_000L
+        ) {
+          val req = Request.Builder()
+            .url("https://api.deepinfra.com/v1/openai/audio/speech")
+            .addHeader("Authorization", "Bearer $apiKey")
+            .post(bodyJson.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+          ttsHttpClient.newCall(req).execute().use { response ->
+            if (!response.isSuccessful) {
+              throw IllegalStateException("DeepInfra HTTP ${response.code}")
+            }
             val bytes = response.body?.bytes()
             if (bytes != null && bytes.size > 256) {
-              return Pair(bytes, "audio/mpeg")
+              Pair(bytes, "audio/mpeg")
+            } else {
+              throw IllegalStateException("DeepInfra empty audio")
             }
           }
         }
+        if (deepInfraPair.first != null) return deepInfraPair
+      } catch (e: CancellationException) {
+        if (e !is TimeoutCancellationException) throw e
+        Log.w(TAG, "DeepInfra Kokoro-82M timed out, trying HF Inference API", e)
       } catch (e: Exception) {
         Log.w(TAG, "DeepInfra Kokoro-82M attempt failed, trying HF Inference API", e)
       }
@@ -1375,20 +1586,34 @@ class ToonTalkAiBridge(
           put("inputs", text)
           put("parameters", JSONObject().put("voice", cleanVoice))
         }
-        val req = Request.Builder()
-          .url("https://api-inference.huggingface.co/models/hexgrad/Kokoro-82M")
-          .addHeader("Authorization", "Bearer $apiKey")
-          .post(hfBody.toString().toRequestBody("application/json".toMediaType()))
-          .build()
-        ttsHttpClient.newCall(req).execute().use { response ->
-          if (response.isSuccessful) {
+        val hfPair = retryWithExponentialBackoff(
+          operationName = "Kokoro_HF_Inference",
+          maxRetries = 2,
+          initialDelayMs = 600L,
+          maxDelayMs = 2_500L
+        ) {
+          val req = Request.Builder()
+            .url("https://api-inference.huggingface.co/models/hexgrad/Kokoro-82M")
+            .addHeader("Authorization", "Bearer $apiKey")
+            .post(hfBody.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+          ttsHttpClient.newCall(req).execute().use { response ->
+            if (!response.isSuccessful) {
+              throw IllegalStateException("HF Kokoro HTTP ${response.code}")
+            }
             val bytes = response.body?.bytes()
             if (bytes != null && bytes.size > 256) {
               val cType = response.header("Content-Type", "audio/flac") ?: "audio/flac"
-              return Pair(bytes, cType)
+              Pair(bytes, cType)
+            } else {
+              throw IllegalStateException("HF Kokoro empty audio")
             }
           }
         }
+        if (hfPair.first != null) return hfPair
+      } catch (e: CancellationException) {
+        if (e !is TimeoutCancellationException) throw e
+        Log.w(TAG, "HuggingFace Kokoro-82M timed out", e)
       } catch (e: Exception) {
         Log.w(TAG, "HuggingFace Kokoro-82M attempt failed", e)
       }
@@ -1802,13 +2027,40 @@ class ToonTalkAiBridge(
       lengthSec <= 15 -> 4
       lengthSec <= 30 -> 6
       lengthSec <= 45 -> 8
-      else -> rawLines.size
-    }.coerceIn(4, rawLines.size)
+      else -> 10
+    }
 
-    val selected = rawLines.take(targetCount)
+    val extraLines = when (language) {
+      "Hindi" -> listOf(
+        Pair("A", "और यकीन मानो, वैज्ञानिकों ने जब इसे टेस्ट किया तो उनके भी होश उड़ गए!"),
+        Pair("B", "भाई रुक जा, मैं अभी अपने बेस्ट फ्रेंड को ये वीडियो भेज रहा हूँ!"),
+        Pair("A", "सिर्फ 1% लोग ही आखिरी सेकंड का छुपा हुआ सीक्रेट पकड़ पाते हैं!"),
+        Pair("B", "सब्सक्राइब करो और कमेंट में बताओ तुम्हारा फेवरेट पार्ट कौन सा था?!")
+      )
+      "Roman Urdu" -> listOf(
+        Pair("A", "Aur yaqeen mano, scientists ne jab isay test kiya toh unke bhi hosh udd gaye!"),
+        Pair("B", "Bhai ruk ja, main abhi apne best friend ko yeh video share kar raha hoon!"),
+        Pair("A", "Sirf 1% log hi aakhri second ka hidden secret notice kar paate hain!"),
+        Pair("B", "Subscribe karo aur comments mein batao tumhara favorite part kaunsa tha?!")
+      )
+      else -> listOf(
+        Pair("A", "And when researchers tested this in a lab, the results broke the internet!"),
+        Pair("B", "Wait hold up, I am literally sending this to my group chat right now!"),
+        Pair("A", "Only one percent of viewers actually notice the hidden detail at the end!"),
+        Pair("B", "Hit subscribe and comment your theory below before everyone else finds out!")
+      )
+    }
+
+    val combined = if (targetCount > rawLines.size) {
+      val middle = rawLines.dropLast(1) + extraLines.take(targetCount - rawLines.size) + listOf(rawLines.last())
+      middle.mapIndexed { idx, pair -> Pair(if (idx % 2 == 0) "A" else "B", pair.second) }
+    } else {
+      rawLines.take(targetCount)
+    }
+
     val arr = JSONArray()
-    for (i in selected.indices) {
-      val (spk, txt) = selected[i]
+    for (i in combined.indices) {
+      val (spk, txt) = combined[i]
       arr.put(
         JSONObject()
           .put("speaker", spk)

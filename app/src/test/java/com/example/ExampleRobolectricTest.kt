@@ -63,11 +63,42 @@ class ExampleRobolectricTest {
     assertTrue("index.html should contain Audio8 banner", html.contains("id=\"audio8-engine-banner\""))
     assertTrue("index.html should contain Kokoro banner", html.contains("id=\"kokoro-engine-banner\""))
     assertTrue("app.js should not have duplicate catch block", !appJs.contains("} catch (_) {}\n  }\n    } catch (_) {}"))
+    assertTrue("app.js should contain retryWithExponentialBackoff", appJs.contains("async function retryWithExponentialBackoff("))
 
     for ((name, src) in listOf("app.js" to appJs, "render_engine.js" to renderJs, "starter_assets.js" to starterJs)) {
       val openBraces = src.count { it == '{' }
       val closeBraces = src.count { it == '}' }
       assertEquals("Balanced curly braces in $name", openBraces, closeBraces)
     }
+  }
+
+  @Test
+  fun `verify exponential backoff auto retry recovers from transient failures`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Unconfined)
+    val bridge = ToonTalkAiBridge(context, scope) { null }
+
+    var attempts = 0
+    val result = kotlinx.coroutines.runBlocking {
+      bridge.retryWithExponentialBackoff(
+        operationName = "test_60s_script_retry",
+        maxRetries = 3,
+        initialDelayMs = 10L,
+        maxDelayMs = 50L
+      ) { attempt ->
+        attempts++
+        if (attempt < 2) {
+          throw java.net.SocketTimeoutException("Simulated 60s request timeout on attempt $attempt")
+        }
+        "recovered_after_${attempts}_attempts"
+      }
+    }
+
+    assertEquals(3, attempts)
+    assertEquals("recovered_after_3_attempts", result)
+    assertTrue(bridge.isTransientApiFailure(java.net.SocketTimeoutException("Read timed out")))
+    assertTrue(bridge.isTransientApiFailure(IllegalStateException("Gemini API error (429): Rate limit")))
+    assertTrue(bridge.isTransientApiFailure(IllegalStateException("Gemini API error (503): Service unavailable")))
+    bridge.shutdown()
   }
 }

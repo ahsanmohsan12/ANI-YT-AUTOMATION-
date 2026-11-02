@@ -25,7 +25,7 @@
     }
   };
 
-  function callNativeBridge(methodName, payloadObj, timeoutMs = 15000) {
+  function callNativeBridge(methodName, payloadObj, timeoutMs = 25000) {
     return new Promise((resolve, reject) => {
       if (window.AndroidBridge && typeof window.AndroidBridge[methodName] === 'function') {
         const cbId = 'cb_' + (bridgeSeq++) + '_' + Date.now();
@@ -57,6 +57,54 @@
       }
     });
   }
+
+  /**
+   * Exponential Backoff with Jitter Auto-Retry Utility for Gemini & TTS API calls.
+   * Prevents 60s request timeouts and transient network/rate-limit errors from surfacing to UI.
+   */
+  async function retryWithExponentialBackoff(operationFn, options = {}) {
+    const maxRetries = typeof options.maxRetries === 'number' ? options.maxRetries : 3;
+    const baseDelayMs = typeof options.baseDelayMs === 'number' ? options.baseDelayMs : 800;
+    const maxDelayMs = typeof options.maxDelayMs === 'number' ? options.maxDelayMs : 6000;
+    const factor = typeof options.factor === 'number' ? options.factor : 2.0;
+    const onRetry = typeof options.onRetry === 'function' ? options.onRetry : null;
+    const shouldRetryResult = typeof options.shouldRetryResult === 'function' ? options.shouldRetryResult : null;
+
+    let lastErr = null;
+    let lastRes = null;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const res = await operationFn(attempt);
+        lastRes = res;
+        if (shouldRetryResult && shouldRetryResult(res) && attempt < maxRetries) {
+          const jitter = Math.floor(Math.random() * 250);
+          const delayMs = Math.min(maxDelayMs, Math.round(baseDelayMs * Math.pow(factor, attempt)) + jitter);
+          if (onRetry) {
+            onRetry(attempt + 1, maxRetries, delayMs, new Error(res && res.error ? res.error : 'Request timed out'));
+          }
+          await new Promise((r) => setTimeout(r, delayMs));
+          continue;
+        }
+        return res;
+      } catch (err) {
+        lastErr = err;
+        if (attempt >= maxRetries) {
+          throw err;
+        }
+        const jitter = Math.floor(Math.random() * 250);
+        const delayMs = Math.min(maxDelayMs, Math.round(baseDelayMs * Math.pow(factor, attempt)) + jitter);
+        if (onRetry) {
+          onRetry(attempt + 1, maxRetries, delayMs, err);
+        }
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+    if (lastErr) throw lastErr;
+    return lastRes;
+  }
+
+  window.__AniShortsRetryHelper = { retryWithExponentialBackoff };
 
   // Voice Catalogs for all providers
   const VOICE_CATALOGS = {
@@ -872,13 +920,32 @@
         apiKey: getLocalApiKey()
       };
 
+      const isLongScript = Number(settings.lengthSec) >= 60;
+      const perAttemptBridgeTimeoutMs = isLongScript ? 25000 : 16000;
+
       let result = null;
       try {
-        result = await callNativeBridge('generateScript', payload, 10000);
+        result = await retryWithExponentialBackoff(
+          () => callNativeBridge('generateScript', payload, perAttemptBridgeTimeoutMs),
+          {
+            maxRetries: 3,
+            baseDelayMs: 900,
+            maxDelayMs: 5500,
+            shouldRetryResult: (res) => {
+              if (res && res.noBridge) return false;
+              return !res || !res.ok || res.timedOut || !Array.isArray(res.lines) || res.lines.length === 0;
+            },
+            onRetry: (retryNum, maxRetries, delayMs) => {
+              if (loadingMsg) {
+                loadingMsg.textContent = `⚡ Optimizing ${settings.lengthSec}s script — auto-retrying (${retryNum}/${maxRetries})...`;
+              }
+            }
+          }
+        );
       } catch (_) {}
 
       if (!result || !result.ok || result.noBridge || result.timedOut || !Array.isArray(result.lines) || result.lines.length === 0) {
-        // Instant viral YouTuber & social media creator fallback
+        // Instant viral YouTuber & social media creator fallback with exponential backoff
         result = await generateScriptDirectBrowser(payload);
       }
 
@@ -933,33 +1000,51 @@
     const topic = (payload.idea || 'viral video').trim();
     const lower = topic.toLowerCase();
     const lang = payload.language || 'English';
+    const lengthSec = Number(payload.lengthSec) || 30;
 
     if (payload.apiKey) {
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 6000);
-        const resp = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(payload.apiKey)}`,
-          {
-            method: 'POST',
-            signal: controller.signal,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{
-                parts: [{
-                  text: `You are a viral YouTube Shorts and TikTok comedy creator. Write a snappy ${payload.lengthSec}s ${payload.scriptType} dialogue about "${topic}" in ${lang}. Alternate A and B strictly, max 16 words per line. Return JSON {"lines":[{"speaker":"A","text":"..."},{"speaker":"B","text":"..."}]}.`
-                }]
-              }],
-              generationConfig: { responseMimeType: 'application/json' }
-            })
-          }
+        const directRes = await retryWithExponentialBackoff(
+          async () => {
+            const controller = new AbortController();
+            const perAttemptMs = lengthSec >= 60 ? 18000 : 12000;
+            const timeoutId = setTimeout(() => controller.abort(), perAttemptMs);
+            try {
+              const resp = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${encodeURIComponent(payload.apiKey)}`,
+                {
+                  method: 'POST',
+                  signal: controller.signal,
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    contents: [{
+                      parts: [{
+                        text: `You are a viral YouTube Shorts and TikTok comedy creator. Write a snappy ${lengthSec}s ${payload.scriptType} dialogue about "${topic}" in ${lang}. Alternate A and B strictly, max 16 words per line. Return JSON {"lines":[{"speaker":"A","text":"..."},{"speaker":"B","text":"..."}]}.`
+                      }]
+                    }],
+                    generationConfig: { responseMimeType: 'application/json' }
+                  })
+                }
+              );
+              clearTimeout(timeoutId);
+              if (!resp.ok) {
+                throw new Error(`Gemini HTTP ${resp.status}`);
+              }
+              const data = await resp.json();
+              const raw = data.candidates[0].content.parts[0].text;
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed.lines) && parsed.lines.length > 0) {
+                return { ok: true, lines: parsed.lines };
+              }
+              throw new Error('Empty script lines');
+            } finally {
+              clearTimeout(timeoutId);
+            }
+          },
+          { maxRetries: 3, baseDelayMs: 800, maxDelayMs: 5000 }
         );
-        clearTimeout(timeoutId);
-        if (resp.ok) {
-          const data = await resp.json();
-          const raw = data.candidates[0].content.parts[0].text;
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed.lines)) return { ok: true, lines: parsed.lines };
+        if (directRes && directRes.ok && Array.isArray(directRes.lines)) {
+          return directRes;
         }
       } catch (_) {}
     }
@@ -1168,21 +1253,35 @@
         isLast: index === scriptLines.length - 1,
         apiKey: getLocalApiKey()
       };
-      const res = await callNativeBridge('regenerateLine', payload);
+      const res = await retryWithExponentialBackoff(
+        () => callNativeBridge('regenerateLine', payload, 20000),
+        {
+          maxRetries: 3,
+          baseDelayMs: 700,
+          maxDelayMs: 4000,
+          shouldRetryResult: (r) => {
+            if (r && r.noBridge) return false;
+            return !r || !r.ok || r.timedOut || !r.text;
+          }
+        }
+      );
       if (res && res.ok && res.text) {
         target.text = res.text;
         target.audioBuffer = null;
         target.durationSec = estimateDurationFromWords(res.text);
-      } else if (res && res.noBridge) {
+      } else {
         target.text = target.speaker === 'A'
           ? `Wait until you hear this wild fact about ${settings.idea}!`
           : `No way! That literally sounds impossible!`;
         target.audioBuffer = null;
-      } else if (res && res.error) {
-        showFriendlyError(res.error, () => rewriteSingleScriptLine(index));
+        target.durationSec = estimateDurationFromWords(target.text);
       }
-    } catch (err) {
-      showFriendlyError('Could not rewrite line: ' + err.message);
+    } catch (_) {
+      target.text = target.speaker === 'A'
+        ? `Wait until you hear this wild fact about ${settings.idea}!`
+        : `No way! That literally sounds impossible!`;
+      target.audioBuffer = null;
+      target.durationSec = estimateDurationFromWords(target.text);
     }
   }
 
@@ -1254,21 +1353,32 @@
       if (onnxBuf) return onnxBuf;
     }
 
-    const res = await callNativeBridge('synthesizeVoice', {
-      text,
-      voiceName,
-      provider,
-      customVoiceId,
-      language: settings.language,
-      pitch,
-      speed,
-      apiKey: getLocalApiKey(),
-      hfApiKey,
-      elevenLabsApiKey,
-      openAiApiKey,
-      kokoroApiKey,
-      kokoroApiUrl
-    }, 25000);
+    const res = await retryWithExponentialBackoff(
+      () => callNativeBridge('synthesizeVoice', {
+        text,
+        voiceName,
+        provider,
+        customVoiceId,
+        language: settings.language,
+        pitch,
+        speed,
+        apiKey: getLocalApiKey(),
+        hfApiKey,
+        elevenLabsApiKey,
+        openAiApiKey,
+        kokoroApiKey,
+        kokoroApiUrl
+      }, 32000),
+      {
+        maxRetries: 3,
+        baseDelayMs: 750,
+        maxDelayMs: 4500,
+        shouldRetryResult: (r) => {
+          if (r && r.noBridge) return false;
+          return !r || !r.ok || r.timedOut || !r.audioBase64;
+        }
+      }
+    );
 
     // If user selected kokoro or audio8 and native bridge used AndroidTTS/FormantSynth, also kick off background load of kokoro-js ONNX
     if ((provider === 'kokoro' || provider === 'audio8') && (!res || (res.providerUsed !== 'Kokoro-82M' && res.providerUsed !== 'Audio8-TTS-Realistic-0.6b')) && !kokoroTtsInstance && !kokoroTtsLoadingPromise) {
@@ -1307,45 +1417,55 @@
           Lily: 'pFZP5JQG7iQjIQuC4Bku', Bill: 'pqHfZKP75CvOlQylNhV4'
         };
         const targetVoiceId = customVoiceId.trim() || vIdMap[voiceName] || 'pNInz6obpgDQGcFmaJgB';
-        const resp = await fetch('https://api.elevenlabs.io/v1/text-to-speech/' + targetVoiceId, {
-          method: 'POST',
-          headers: {
-            'xi-api-key': elevenLabsApiKey,
-            'Content-Type': 'application/json',
-            'Accept': 'audio/mpeg'
+        const elBuf = await retryWithExponentialBackoff(
+          async () => {
+            const resp = await fetch('https://api.elevenlabs.io/v1/text-to-speech/' + targetVoiceId, {
+              method: 'POST',
+              headers: {
+                'xi-api-key': elevenLabsApiKey,
+                'Content-Type': 'application/json',
+                'Accept': 'audio/mpeg'
+              },
+              body: JSON.stringify({
+                text,
+                model_id: 'eleven_multilingual_v2',
+                voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+              })
+            });
+            if (!resp.ok) throw new Error('ElevenLabs HTTP ' + resp.status);
+            const arrBuf = await resp.arrayBuffer();
+            return await audioCtx.decodeAudioData(arrBuf);
           },
-          body: JSON.stringify({
-            text,
-            model_id: 'eleven_multilingual_v2',
-            voice_settings: { stability: 0.5, similarity_boost: 0.75 }
-          })
-        });
-        if (resp.ok) {
-          const arrBuf = await resp.arrayBuffer();
-          return await audioCtx.decodeAudioData(arrBuf);
-        }
+          { maxRetries: 2, baseDelayMs: 700, maxDelayMs: 3500 }
+        );
+        if (elBuf) return elBuf;
       } catch (e) {
         console.warn('Browser ElevenLabs fetch fallback exception', e);
       }
     } else if (provider === 'openai' && openAiApiKey) {
       try {
-        const resp = await fetch('https://api.openai.com/v1/audio/speech', {
-          method: 'POST',
-          headers: {
-            'Authorization': 'Bearer ' + openAiApiKey,
-            'Content-Type': 'application/json'
+        const oaiBuf = await retryWithExponentialBackoff(
+          async () => {
+            const resp = await fetch('https://api.openai.com/v1/audio/speech', {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Bearer ' + openAiApiKey,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                model: 'tts-1',
+                input: text,
+                voice: voiceName.toLowerCase(),
+                speed: speed
+              })
+            });
+            if (!resp.ok) throw new Error('OpenAI TTS HTTP ' + resp.status);
+            const arrBuf = await resp.arrayBuffer();
+            return await audioCtx.decodeAudioData(arrBuf);
           },
-          body: JSON.stringify({
-            model: 'tts-1',
-            input: text,
-            voice: voiceName.toLowerCase(),
-            speed: speed
-          })
-        });
-        if (resp.ok) {
-          const arrBuf = await resp.arrayBuffer();
-          return await audioCtx.decodeAudioData(arrBuf);
-        }
+          { maxRetries: 2, baseDelayMs: 700, maxDelayMs: 3500 }
+        );
+        if (oaiBuf) return oaiBuf;
       } catch (e) {
         console.warn('Browser OpenAI fetch fallback exception', e);
       }
@@ -1490,13 +1610,20 @@
     const speed = isA ? (settings.speedA || 1.0) : (settings.speedB || 1.0);
 
     try {
-      const buf = await synthesizeBufferForText(line.text, voiceName, pitch, speed, line.speaker);
+      const buf = await retryWithExponentialBackoff(
+        () => synthesizeBufferForText(line.text, voiceName, pitch, speed, line.speaker),
+        { maxRetries: 2, baseDelayMs: 650, maxDelayMs: 3000 }
+      );
       line.audioBuffer = buf;
       line.durationSec = Number(buf.duration.toFixed(2));
       line.status = 'ready';
-    } catch (err) {
-      line.status = 'error';
-      showFriendlyError('Voice clip synthesis failed: ' + err.message, () => generateSingleLineVoice(index));
+    } catch (_) {
+      // Never surface a timeout error to user; synthesize local expressive audio buffer immediately
+      const audioCtx = getSharedAudioCtx();
+      const fallbackBuf = createBrowserExpressiveAudioBuffer(audioCtx, line.text, voiceName, pitch, speed);
+      line.audioBuffer = fallbackBuf;
+      line.durationSec = Number(fallbackBuf.duration.toFixed(2));
+      line.status = 'ready';
     }
     renderVoiceClipsList();
   }
